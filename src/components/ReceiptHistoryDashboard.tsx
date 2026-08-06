@@ -1,0 +1,2455 @@
+"use client"
+
+import React, { useState, useEffect, useMemo, useRef } from "react"
+import {
+  Search,
+  Receipt as ReceiptIcon,
+  Tag,
+  Trash2,
+  Eye,
+  ShoppingBag,
+  TrendingUp,
+  X,
+  Store,
+  Sparkles,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  FileSpreadsheet,
+  Download,
+  Edit,
+  BarChart3,
+  Settings,
+  Plus,
+  Check,
+  ChevronRight,
+  ListFilter,
+  ArrowDownToLine,
+  Maximize2,
+  Info,
+  Calendar,
+  Database,
+  Printer,
+  UploadCloud,
+  ChevronDown,
+  ChevronLeft,
+  Layers,
+  PieChart as PieIcon,
+  LineChart as LineIcon,
+  Zap,
+  Building2,
+  CheckSquare,
+  Square,
+  Filter,
+  User,
+} from "lucide-react"
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  AreaChart,
+  Area,
+  CartesianGrid,
+} from "recharts"
+import { ImageInteractiveLightbox } from "@/components/ImageInteractiveLightbox"
+
+export interface ReceiptItem {
+  id: string
+  receiptId: string
+  name: string
+  category: string
+  subCategory?: string
+  price: number
+  quantity: number
+  createdAt: string
+}
+
+export interface ReceiptData {
+  id: string
+  merchantName: string
+  date: string
+  imageUrl?: string | null
+  subtotal?: number
+  taxAmount?: number
+  totalAmount: number
+  paymentMethod?: string
+  paymentStatus?: string
+  note?: string | null
+  items: ReceiptItem[]
+  createdAt: string
+}
+
+export interface HierarchyGroup {
+  id: string
+  name: string
+  subCategories: { id: string; name: string }[]
+}
+
+const GRAPH_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4", "#64748b"]
+
+interface ReceiptHistoryDashboardProps {
+  onScanNewReceipt: () => void
+  onEditReceipt?: (receipt: ReceiptData) => void
+}
+
+export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: ReceiptHistoryDashboardProps) {
+  const [allReceipts, setAllReceipts] = useState<ReceiptData[]>([])
+  const [hierarchy, setHierarchy] = useState<HierarchyGroup[]>([])
+  const [isInitialLoading, setIsInitialLoading] = useState(true)
+
+  // Toggle Analytics Charts display & Chart View Type
+  const [showCharts, setShowCharts] = useState(true)
+  const [chartMode, setChartMode] = useState<"category" | "daily" | "topProducts">("category")
+
+  // Interactive Lightbox Modal State
+  const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null)
+
+  // Filters State
+  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedCategory, setSelectedCategory] = useState("Semua")
+  const [selectedSubCategory, setSelectedSubCategory] = useState("Semua Sub-Kategori")
+
+  // Date Range Filter State
+  const [dateRangeFilter, setDateRangeFilter] = useState<"all" | "today" | "7days" | "month" | "custom">("all")
+  const [startDate, setStartDate] = useState("")
+  const [endDate, setEndDate] = useState("")
+
+  // Backup & Restore State
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isBackupRestoring, setIsBackupRestoring] = useState(false)
+
+  // Rekening Koran Print Modal State
+  const [showStatementPrintModal, setShowStatementPrintModal] = useState(false)
+
+  // Selected Detail Modal State
+  const [selectedReceipt, setSelectedReceipt] = useState<ReceiptData | null>(null)
+  const [deletingReceipt, setDeletingReceipt] = useState<ReceiptData | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  // Multi-Selection State for Bulk Actions
+  const [selectedReceiptIds, setSelectedReceiptIds] = useState<string[]>([])
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+
+  // Status Filter Panel Toggle & Filter States
+  const [showStatusFilterPanel, setShowStatusFilterPanel] = useState<boolean>(false)
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("Semua Status")
+
+  // Sub-Status / Penanggung Jawab Filter State
+  const [selectedPersonFilter, setSelectedPersonFilter] = useState<string>("Semua Penanggung Jawab")
+
+  // Dynamically extract all unique person names from [Dibayar oleh: ...] tags in receipts
+  const availablePersonNames = useMemo(() => {
+    const personSet = new Set<string>()
+    allReceipts.forEach((r) => {
+      if (r.note) {
+        const match = r.note.match(/\[Dibayar oleh: ([^\]]+)\]/)
+        if (match && match[1] && match[1].trim()) {
+          personSet.add(match[1].trim())
+        }
+      }
+    })
+    return Array.from(personSet)
+  }, [allReceipts])
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(10)
+
+  // Handle Settle Receipt (Lunasi Nota)
+  const handleSettleReceipt = async (receiptToSettle: ReceiptData) => {
+    try {
+      const res = await fetch(`/api/receipts/${receiptToSettle.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...receiptToSettle,
+          paymentStatus: "Lunas",
+        }),
+      })
+
+      if (res.ok) {
+        setAllReceipts((prev) =>
+          prev.map((r) =>
+            r.id === receiptToSettle.id ? { ...r, paymentStatus: "Lunas" } : r
+          )
+        )
+        if (selectedReceipt && selectedReceipt.id === receiptToSettle.id) {
+          setSelectedReceipt((prev) =>
+            prev ? { ...prev, paymentStatus: "Lunas" } : null
+          )
+        }
+      } else {
+        alert("Gagal memperbarui status pelunasan nota.")
+      }
+    } catch (err) {
+      alert("Gagal memperbarui status pelunasan nota.")
+    }
+  }
+
+  // Export Confirmation Modal State
+  const [exportConfirmFormat, setExportConfirmFormat] = useState<"xlsx" | "csv" | "statement" | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
+
+  // Category CRUD Management Modal State
+  const [showManageCategoryModal, setShowManageCategoryModal] = useState(false)
+  const [newCatType, setNewCatType] = useState<"parent" | "sub">("parent")
+  const [newCatNameInput, setNewCatNameInput] = useState("")
+  const [selectedParentId, setSelectedParentId] = useState("")
+  const [editingCatId, setEditingCatId] = useState<string | null>(null)
+  const [editingCatName, setEditingCatName] = useState("")
+
+  // Fetch Hierarchy Categories from API (STRICTLY FROM DATABASE)
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch("/api/categories")
+      if (res.ok) {
+        const data = await res.json()
+        if (data.hierarchy && Array.isArray(data.hierarchy)) {
+          setHierarchy(data.hierarchy)
+          if (data.hierarchy.length > 0 && !selectedParentId) {
+            setSelectedParentId(data.hierarchy[0].id)
+          }
+        }
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  // Fetch All Receipts from API (Initial & Background Sync)
+  const fetchAllReceipts = async (silent = false) => {
+    if (!silent) setIsInitialLoading(true)
+    try {
+      const res = await fetch("/api/receipts")
+      if (res.ok) {
+        const data = await res.json()
+        setAllReceipts(data)
+      }
+    } catch (err) {
+      console.error("Gagal mengambil riwayat nota:", err)
+    } finally {
+      if (!silent) setIsInitialLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchCategories()
+    fetchAllReceipts(false)
+  }, [])
+
+  // Parent Category Tabs List strictly built from database hierarchy
+  const parentTabs = ["Semua", ...hierarchy.map((h) => h.name)]
+
+  // Build Sub-Category Pills for selected parent category
+  const activeParentObj = hierarchy.find((h) => h.name === selectedCategory)
+  const subCategoryOptions = activeParentObj
+    ? ["Semua Sub-Kategori", ...activeParentObj.subCategories.map((s) => s.name)]
+    : []
+
+  // Reset Sub-Category filter seamlessly when Parent Category changes
+  const handleSelectParentCategory = (cat: string) => {
+    setSelectedCategory(cat)
+    setSelectedSubCategory("Semua Sub-Kategori")
+    setCurrentPage(1)
+  }
+
+  // Check if a specific sub-category filter is active
+  const isSubCategoryActive = selectedSubCategory && selectedSubCategory !== "Semua Sub-Kategori"
+  const subQ = isSubCategoryActive ? selectedSubCategory.toLowerCase() : ""
+
+  // Helper to check if receipt is settled (Lunas)
+  const isReceiptSettled = (paymentStatus?: string | null): boolean => {
+    if (!paymentStatus) return true
+    const st = paymentStatus.toLowerCase().trim()
+    if (st.includes("belum") || st.includes("tempo")) {
+      return false
+    }
+    return st === "lunas" || st.includes("sudah")
+  }
+
+  // SEAMLESS INSTANT CLIENT-SIDE FILTERING (Category + Sub-Category + Search + Date Range + Status)
+  const filteredReceipts = useMemo(() => {
+    const todayStr = new Date().toISOString().split("T")[0]
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+    const currentMonthStr = todayStr.substring(0, 7) // YYYY-MM
+
+    return allReceipts.filter((r) => {
+      // 1. Date Range Filter
+      if (dateRangeFilter === "today" && r.date !== todayStr) return false
+      if (dateRangeFilter === "7days" && r.date < sevenDaysAgo) return false
+      if (dateRangeFilter === "month" && !r.date.startsWith(currentMonthStr)) return false
+      if (dateRangeFilter === "custom") {
+        if (startDate && r.date < startDate) return false
+        if (endDate && r.date > endDate) return false
+      }
+
+      // 2. Search Query Filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim()
+        const matchMerchant = r.merchantName.toLowerCase().includes(q)
+        const matchItem = r.items.some(
+          (item) =>
+            item.name.toLowerCase().includes(q) ||
+            item.category.toLowerCase().includes(q) ||
+            (item.subCategory && item.subCategory.toLowerCase().includes(q))
+        )
+        const matchPayment = (r.paymentMethod || "").toLowerCase().includes(q)
+        const matchNote = (r.note || "").toLowerCase().includes(q)
+        if (!matchMerchant && !matchItem && !matchPayment && !matchNote) return false
+      }
+
+      // 3. Sub-Category Filter
+      if (isSubCategoryActive) {
+        const hasSubItem = r.items.some((item) => {
+          const sub = (item.subCategory || "").toLowerCase()
+          const cat = (item.category || "").toLowerCase()
+          return sub.includes(subQ) || cat.includes(subQ)
+        })
+        if (!hasSubItem) return false
+      }
+      // 4. Parent Category Filter
+      else if (selectedCategory && selectedCategory !== "Semua") {
+        const catQ = selectedCategory.toLowerCase().split("/")[0].trim()
+        const hasCatItem = r.items.some((item) => {
+          const cat = (item.category || "").toLowerCase()
+          const sub = (item.subCategory || "").toLowerCase()
+          return cat.includes(catQ) || sub.includes(catQ)
+        })
+        if (!hasCatItem) return false
+      }
+
+      // 5. Payment Status Filter
+      if (selectedStatusFilter === "Lunas") {
+        if (!isReceiptSettled(r.paymentStatus)) return false
+      } else if (selectedStatusFilter === "Belum Direimburse / Tempo") {
+        if (isReceiptSettled(r.paymentStatus)) return false
+      }
+
+      // 6. Sub-Status (Penanggung Jawab / Talangan) Filter
+      if (selectedPersonFilter !== "Semua Penanggung Jawab") {
+        const noteText = r.note || ""
+        const match = noteText.match(/\[Dibayar oleh: ([^\]]+)\]/)
+        const paidBy = match ? match[1].trim() : ""
+        if (paidBy.toLowerCase() !== selectedPersonFilter.toLowerCase()) return false
+      }
+
+      return true
+    })
+  }, [
+    allReceipts,
+    dateRangeFilter,
+    startDate,
+    endDate,
+    searchQuery,
+    selectedCategory,
+    selectedSubCategory,
+    isSubCategoryActive,
+    subQ,
+    selectedStatusFilter,
+    selectedPersonFilter,
+  ])
+
+  // Reset to Page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, dateRangeFilter, startDate, endDate, selectedSubCategory])
+
+  // Pagination Calculations
+  const totalPages = Math.ceil(filteredReceipts.length / itemsPerPage) || 1
+  const paginatedReceipts = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage
+    return filteredReceipts.slice(start, start + itemsPerPage)
+  }, [filteredReceipts, currentPage, itemsPerPage])
+
+  // Bulk Selection Handlers
+  const isAllSelected = useMemo(() => {
+    if (paginatedReceipts.length === 0) return false
+    return paginatedReceipts.every((r) => selectedReceiptIds.includes(r.id))
+  }, [paginatedReceipts, selectedReceiptIds])
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedReceiptIds([])
+    } else {
+      setSelectedReceiptIds(paginatedReceipts.map((r) => r.id))
+    }
+  }
+
+  const toggleSelectRow = (id: string) => {
+    setSelectedReceiptIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    )
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedReceiptIds.length === 0) return
+    if (!confirm(`Hapus ${selectedReceiptIds.length} nota yang dipilih secara permanen?`)) return
+
+    setIsBulkDeleting(true)
+    try {
+      await Promise.all(
+        selectedReceiptIds.map((id) => fetch(`/api/receipts/${id}`, { method: "DELETE" }))
+      )
+      setAllReceipts((prev) => prev.filter((r) => !selectedReceiptIds.includes(r.id)))
+      setSelectedReceiptIds([])
+    } catch (e) {
+      alert("Gagal menghapus beberapa nota terpilih")
+    } finally {
+      setIsBulkDeleting(false)
+    }
+  }
+
+  // Category CRUD Handlers
+  const handleCreateCategory = async () => {
+    if (!newCatNameInput.trim()) return
+    try {
+      const payload: any = { name: newCatNameInput.trim() }
+      if (newCatType === "sub" && selectedParentId) {
+        payload.parentId = selectedParentId
+      }
+
+      const res = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      if (res.ok) {
+        setNewCatNameInput("")
+        await fetchCategories()
+        await fetchAllReceipts(true)
+      }
+    } catch (e) {
+      alert("Gagal membuat kategori baru")
+    }
+  }
+
+  const handleUpdateCategory = async (catId: string) => {
+    if (!editingCatName.trim()) return
+    try {
+      const res = await fetch(`/api/categories/${catId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editingCatName.trim() }),
+      })
+
+      if (res.ok) {
+        setEditingCatId(null)
+        setEditingCatName("")
+        await fetchCategories()
+        await fetchAllReceipts(true)
+      }
+    } catch (e) {
+      alert("Gagal memperbarui kategori")
+    }
+  }
+
+  const handleDeleteCategory = async (catId: string, catName: string) => {
+    if (!confirm(`Yakin ingin menghapus kategori "${catName}"?`)) return
+    try {
+      const res = await fetch(`/api/categories/${catId}`, {
+        method: "DELETE",
+      })
+
+      if (res.ok) {
+        await fetchCategories()
+        await fetchAllReceipts(true)
+      }
+    } catch (e) {
+      alert("Gagal menghapus kategori")
+    }
+  }
+
+  // Backup & Restore Database Handlers
+  const handleExportJsonBackup = async () => {
+    try {
+      const res = await fetch("/api/backup")
+      if (!res.ok) throw new Error("Gagal mengunduh cadangan JSON")
+      const blob = await res.blob()
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = downloadUrl
+      a.download = `NotaPhoto_FullBackup_${new Date().toISOString().split("T")[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+    } catch (err) {
+      alert("Gagal membuat cadangan database JSON")
+    }
+  }
+
+  const handleRestoreJsonBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsBackupRestoring(true)
+    try {
+      const text = await file.text()
+      const backupData = JSON.parse(text)
+
+      const res = await fetch("/api/backup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(backupData),
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        alert(data.message || "Berhasil memulihkan cadangan database!")
+        await fetchCategories()
+        await fetchAllReceipts(false)
+      } else {
+        alert(data.error || "Gagal mengimpor cadangan database")
+      }
+    } catch (err: any) {
+      alert("Format file cadangan tidak valid atau bermasalah")
+    } finally {
+      setIsBackupRestoring(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
+  // Trigger A4 Rekening Koran Printing
+  const handleTriggerA4Print = () => {
+    window.print()
+  }
+
+  // Delete Receipt Handler
+  const triggerDeleteConfirm = (receipt: ReceiptData) => {
+    setDeletingReceipt(receipt)
+  }
+
+  const confirmDeleteReceipt = async () => {
+    if (!deletingReceipt) return
+    setIsDeleting(true)
+    try {
+      const res = await fetch(`/api/receipts/${deletingReceipt.id}`, {
+        method: "DELETE",
+      })
+
+      if (res.ok) {
+        setAllReceipts((prev) => prev.filter((r) => r.id !== deletingReceipt.id))
+        if (selectedReceipt?.id === deletingReceipt.id) {
+          setSelectedReceipt(null)
+        }
+        setDeletingReceipt(null)
+      } else {
+        alert("Gagal menghapus nota")
+      }
+    } catch (err) {
+      alert("Gagal menghubungkan ke server untuk menghapus nota")
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  // Export File Generator Handler
+  const handleProceedExport = async () => {
+    if (!exportConfirmFormat) return
+    setIsExporting(true)
+
+    try {
+      const url = new URL("/api/receipts/export", window.location.origin)
+      if (searchQuery) url.searchParams.set("search", searchQuery)
+      if (selectedSubCategory && selectedSubCategory !== "Semua Sub-Kategori") {
+        url.searchParams.set("category", selectedSubCategory)
+      } else if (selectedCategory && selectedCategory !== "Semua") {
+        url.searchParams.set("category", selectedCategory)
+      }
+
+      url.searchParams.set("format", exportConfirmFormat)
+      url.searchParams.set("order", "asc")
+
+      const res = await fetch(url.toString())
+      if (!res.ok) throw new Error("Gagal mengunduh laporan excel/csv")
+
+      const blob = await res.blob()
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = downloadUrl
+      const ext = exportConfirmFormat === "csv" ? "csv" : "xlsx"
+      const prefix = exportConfirmFormat === "statement" ? "Rekening_Koran" : "Laporan_Nota"
+      a.download = `${prefix}_${selectedCategory.replace(/\s+/g, "_")}_${new Date().toISOString().split("T")[0]}.${ext}`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+
+      setExportConfirmFormat(null)
+    } catch (err: any) {
+      alert(err.message || "Gagal membuat laporan ekspor")
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  // Calculate Total Spend dynamically: If sub-category filter is active, sum items belonging ONLY to that sub-category
+  const totalSpend = useMemo(() => {
+    return filteredReceipts.reduce((acc, r) => {
+      if (isSubCategoryActive) {
+        const subItems = r.items.filter((item) => {
+          const sub = (item.subCategory || "").toLowerCase()
+          const cat = (item.category || "").toLowerCase()
+          return sub.includes(subQ) || cat.includes(subQ)
+        })
+        return acc + subItems.reduce((subAcc, item) => subAcc + item.price * item.quantity, 0)
+      }
+      return acc + r.totalAmount
+    }, 0)
+  }, [filteredReceipts, isSubCategoryActive, subQ])
+
+  const totalItemsCount = useMemo(() => {
+    return filteredReceipts.reduce((acc, r) => {
+      if (isSubCategoryActive) {
+        const subItems = r.items.filter((item) => {
+          const sub = (item.subCategory || "").toLowerCase()
+          const cat = (item.category || "").toLowerCase()
+          return sub.includes(subQ) || cat.includes(subQ)
+        })
+        return acc + subItems.length
+      }
+      return acc + r.items.length
+    }, 0)
+  }, [filteredReceipts, isSubCategoryActive, subQ])
+
+  // Calculate Dominant Category and Category Chart Data
+  const { categoryChartData, dominantCategoryName, maxSpend } = useMemo(() => {
+    const map: Record<string, number> = {}
+    const dbParentNames = hierarchy.map((h) => h.name)
+
+    filteredReceipts.forEach((r) => {
+      r.items.forEach((item) => {
+        const rawCat = item.category || "Lain-lain"
+        const rawRoot = rawCat.split("/")[0].trim().toLowerCase()
+
+        let matchedCategory = dbParentNames.find((p) => {
+          const pRoot = p.split("/")[0].trim().toLowerCase()
+          return pRoot === rawRoot || p.toLowerCase() === rawCat.toLowerCase()
+        })
+
+        if (!matchedCategory) {
+          matchedCategory = rawCat.split("/")[0].trim()
+        }
+
+        map[matchedCategory] = (map[matchedCategory] || 0) + item.price * item.quantity
+      })
+    })
+
+    let domName = "-"
+    let max = 0
+    Object.entries(map).forEach(([cat, val]) => {
+      if (val > max) {
+        max = val
+        domName = cat
+      }
+    })
+
+    const chartData = Object.keys(map).map((catName, idx) => ({
+      name: catName,
+      value: map[catName],
+      percentage: totalSpend > 0 ? Math.round((map[catName] / totalSpend) * 100) : 0,
+      color: GRAPH_COLORS[idx % GRAPH_COLORS.length],
+    }))
+
+    return { categoryChartData: chartData, dominantCategoryName: domName, maxSpend: max }
+  }, [filteredReceipts, totalSpend, hierarchy])
+
+  // Calculate Daily Trend Data (Date vs Spending Total)
+  const dailyTrendData = useMemo(() => {
+    const dateMap: Record<string, number> = {}
+    const sorted = [...filteredReceipts].sort((a, b) => a.date.localeCompare(b.date))
+    sorted.forEach((r) => {
+      const d = r.date
+      const val = isSubCategoryActive
+        ? r.items
+            .filter((item) => {
+              const sub = (item.subCategory || "").toLowerCase()
+              const cat = (item.category || "").toLowerCase()
+              return sub.includes(subQ) || cat.includes(subQ)
+            })
+            .reduce((acc, item) => acc + item.price * item.quantity, 0)
+        : r.totalAmount
+
+      dateMap[d] = (dateMap[d] || 0) + val
+    })
+
+    return Object.keys(dateMap).map((d) => ({
+      date: d,
+      displayDate: d.split("-").slice(1).join("/"),
+      total: dateMap[d],
+    }))
+  }, [filteredReceipts, isSubCategoryActive, subQ])
+
+  // Calculate Top 5 Most Expensive Purchased Products
+  const topProductsData = useMemo(() => {
+    const prodMap: Record<string, { totalSpend: number; qty: number; category: string }> = {}
+
+    filteredReceipts.forEach((r) => {
+      r.items.forEach((item) => {
+        const key = item.name.trim()
+        if (!prodMap[key]) {
+          prodMap[key] = { totalSpend: 0, qty: 0, category: item.category }
+        }
+        prodMap[key].totalSpend += item.price * item.quantity
+        prodMap[key].qty += item.quantity
+      })
+    })
+
+    return Object.entries(prodMap)
+      .map(([name, stat]) => ({
+        name,
+        totalSpend: stat.totalSpend,
+        qty: stat.qty,
+        category: stat.category,
+      }))
+      .sort((a, b) => b.totalSpend - a.totalSpend)
+      .slice(0, 5)
+  }, [filteredReceipts])
+
+  // Calculate Rekening Koran Statement Rows (Matching Bank Mandiri Reference Layout)
+  const statementTableRows = useMemo(() => {
+    const sorted = [...filteredReceipts].sort((a, b) => a.date.localeCompare(b.date))
+    let cumulative = 0
+
+    return sorted.map((r, idx) => {
+      const amount = isSubCategoryActive
+        ? r.items
+            .filter((item) => {
+              const sub = (item.subCategory || "").toLowerCase()
+              const cat = (item.category || "").toLowerCase()
+              return sub.includes(subQ) || cat.includes(subQ)
+            })
+            .reduce((acc, item) => acc + item.price * item.quantity, 0)
+        : r.totalAmount
+
+      cumulative += amount
+      const categoriesStr = Array.from(new Set(r.items.map((i) => i.category || "Lain-lain"))).join(", ")
+
+      const refNo = `NTA-${r.id.substring(0, 8).toUpperCase()}`
+      const dateParts = r.date.split("-")
+      const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : r.date
+
+      return {
+        id: r.id,
+        no: idx + 1,
+        date: formattedDate,
+        merchantName: r.merchantName,
+        categories: categoriesStr,
+        rawItems: r.items,
+        refNo,
+        debit: amount,
+        balance: cumulative,
+      }
+    })
+  }, [filteredReceipts, isSubCategoryActive, subQ])
+
+  // Date Range Statement From / To
+  const statementDateRange = useMemo(() => {
+    if (statementTableRows.length === 0) return { from: "-", to: "-" }
+    const firstDate = statementTableRows[0].date
+    const lastDate = statementTableRows[statementTableRows.length - 1].date
+    return { from: firstDate, to: lastDate }
+  }, [statementTableRows])
+
+  const averageSpendPerReceipt = filteredReceipts.length > 0 ? Math.round(totalSpend / filteredReceipts.length) : 0
+
+  return (
+    <div className="w-full space-y-5 pb-12 transition-all duration-300">
+      {/* GLOBAL PRINT STYLES FOR AUTHENTIC SINGLE-PAGE A4 PDF STATEMENT */}
+      <style jsx global>{`
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 8mm 10mm;
+          }
+
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          html, body {
+            width: 100% !important;
+            max-height: 100vh !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            color: black !important;
+          }
+
+          /* Hide all non-printable controls */
+          .no-print {
+            display: none !important;
+          }
+
+          /* Hide everything visually */
+          body * {
+            visibility: hidden !important;
+          }
+
+          /* Make ONLY printable content and its children visible */
+          #printable-rekening-koran,
+          #printable-rekening-koran * {
+            visibility: visible !important;
+          }
+
+          tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          /* Position printable document at absolute top-left (0,0) fitting within 1 A4 page */
+          #printable-rekening-koran {
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            max-height: 100vh !important;
+            margin: 0 !important;
+            padding: 6mm 8mm !important;
+            background: white !important;
+            color: black !important;
+            box-shadow: none !important;
+            border: none !important;
+            overflow: hidden !important;
+            z-index: 999999 !important;
+          }
+        }
+      `}</style>
+
+
+      {/* Hidden File Input for JSON Backup Restore */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleRestoreJsonBackup}
+        accept=".json"
+        className="hidden"
+      />
+
+      {/* TOP HEADER BANNER (COMPACT & SINGLE LINE FIT) */}
+      <div className="bg-white px-5 py-3.5 rounded-3xl border border-slate-200/90 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+            <ReceiptIcon className="w-4 h-4" />
+          </div>
+          <div>
+            <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+              Riwayat & Laporan Pembukuan
+            </h2>
+            <p className="text-[11px] text-slate-500 font-semibold">
+              Rekap pengeluaran & ekspor laporan.
+            </p>
+          </div>
+        </div>
+
+        {/* Compact Actions Row */}
+        <div className="flex items-center gap-1.5 flex-wrap md:flex-nowrap shrink-0">
+          <button
+            type="button"
+            onClick={onScanNewReceipt}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs transition-all shadow-xs shrink-0"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-emerald-300" /> + Scan Struk
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowCharts(!showCharts)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all border shadow-2xs active:scale-95 shrink-0 ${
+              showCharts
+                ? "bg-slate-900 text-white border-slate-800"
+                : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-emerald-400" /> Grafik
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportJsonBackup}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold text-xs transition-all border border-blue-200 shrink-0"
+            title="Backup Database JSON"
+          >
+            <Database className="w-3.5 h-3.5 text-blue-600" /> Backup
+          </button>
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isBackupRestoring}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs transition-all border border-amber-200 disabled:opacity-50 shrink-0"
+            title="Restore Database JSON"
+          >
+            {isBackupRestoring ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" /> : <UploadCloud className="w-3.5 h-3.5 text-amber-600" />}
+            Restore
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setExportConfirmFormat("xlsx")}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs transition-all border border-emerald-200 shrink-0"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-600" /> Excel
+          </button>
+
+          {/* PRINT OPTION DIRECTLY TRIGGERS BANK MANDIRI STYLE REKENING KORAN MODAL */}
+          <button
+            type="button"
+            onClick={() => setShowStatementPrintModal(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-xs transition-all shadow-md shrink-0 active:scale-95"
+            title="Cetak Laporan Rekening Koran Standard Bank"
+          >
+            <Printer className="w-3.5 h-3.5 text-emerald-400" /> Print
+          </button>
+        </div>
+      </div>
+
+      {/* TOP 4 KPI CARDS ROW */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Total Pengeluaran Netto */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-2xs space-y-2 hover:border-slate-300 transition-all">
+          <div className="flex items-center justify-between text-slate-400 text-[11px] font-black uppercase tracking-wider">
+            <span>
+              {isSubCategoryActive ? `SUB-KATEGORI (${selectedSubCategory.toUpperCase()})` : "TOTAL PENGELUARAN"}
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-mono font-black text-xs flex items-center justify-center">
+              Rp
+            </div>
+          </div>
+          <p className="text-2xl sm:text-3xl font-black font-mono text-slate-900 transition-all duration-200">
+            Rp {totalSpend.toLocaleString("id-ID")}
+          </p>
+          <p className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            {isSubCategoryActive ? `Total belanja ${selectedSubCategory}` : `Dari ${filteredReceipts.length} nota`}
+          </p>
+        </div>
+
+        {/* Card 2: Jumlah Nota */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-2xs space-y-2 hover:border-slate-300 transition-all">
+          <div className="flex items-center justify-between text-slate-400 text-[11px] font-black uppercase tracking-wider">
+            <span>JUMLAH NOTA</span>
+            <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+              <ReceiptIcon className="w-4 h-4" />
+            </div>
+          </div>
+          <p className="text-2xl sm:text-3xl font-black text-slate-900 transition-all duration-200">
+            {filteredReceipts.length} Struk
+          </p>
+          <p className="text-[11px] font-bold text-slate-500">
+            Rata-rata: Rp {averageSpendPerReceipt.toLocaleString("id-ID")}/nota
+          </p>
+        </div>
+
+        {/* Card 3: Total Barang */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-2xs space-y-2 hover:border-slate-300 transition-all">
+          <div className="flex items-center justify-between text-slate-400 text-[11px] font-black uppercase tracking-wider">
+            <span>{isSubCategoryActive ? `ITEM ${selectedSubCategory.toUpperCase()}` : "TOTAL BARANG"}</span>
+            <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+              <ShoppingBag className="w-4 h-4" />
+            </div>
+          </div>
+          <p className="text-2xl sm:text-3xl font-black text-slate-900 transition-all duration-200">
+            {totalItemsCount} Item
+          </p>
+          <p className="text-[11px] font-bold text-purple-700">Rincian produk ter-kategori</p>
+        </div>
+
+        {/* Card 4: Kategori Dominan */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-2xs space-y-2 hover:border-slate-300 transition-all">
+          <div className="flex items-center justify-between text-slate-400 text-[11px] font-black uppercase tracking-wider">
+            <span>PENGELUARAN TERBANYAK</span>
+            <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4" />
+            </div>
+          </div>
+          <p className="text-xl sm:text-2xl font-black text-slate-900 truncate transition-all duration-200">
+            {dominantCategoryName}
+          </p>
+          <p className="text-[11px] font-bold text-amber-700 font-mono">
+            {maxSpend > 0 ? `Rp ${maxSpend.toLocaleString("id-ID")}` : "Belum ada data"}
+          </p>
+        </div>
+      </div>
+
+      {/* HIGHLY USEFUL FINANCIAL ANALYTICS MODULE */}
+      {showCharts && (
+        <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-2xs space-y-5 transition-all duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div className="space-y-0.5">
+              <h3 className="font-black text-slate-900 text-base sm:text-lg flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-emerald-600" />
+                Analitik Visual & Wawasan Keuangan
+              </h3>
+              <p className="text-xs text-slate-500 font-semibold">
+                Grafik interaktif untuk menganalisis distribusi pengeluaran, tren harian, dan produk terboros.
+              </p>
+            </div>
+
+            <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs font-bold w-fit self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setChartMode("category")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all ${
+                  chartMode === "category" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <PieIcon className="w-3.5 h-3.5" /> Distribusi Kategori
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartMode("daily")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all ${
+                  chartMode === "daily" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <LineIcon className="w-3.5 h-3.5 text-blue-400" /> Tren Harian
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartMode("topProducts")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all ${
+                  chartMode === "topProducts" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-400" /> Top 5 Produk
+              </button>
+            </div>
+          </div>
+
+          {chartMode === "category" && categoryChartData.length > 0 && (
+            <div className="space-y-5 animate-in fade-in duration-200">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                <div className="lg:col-span-7 space-y-2">
+                  <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
+                    Pengeluaran Bersih Per Kategori (Rp)
+                  </span>
+                  <div className="h-64 w-full pt-2">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={categoryChartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 11, fontWeight: 700, fill: "#334155" }}
+                          interval={0}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 10, fill: "#64748b" }}
+                          tickFormatter={(v) => `Rp ${(v / 1000).toLocaleString("id-ID")}k`}
+                        />
+                        <Tooltip
+                          formatter={(value: any) => [`Rp ${Number(value).toLocaleString("id-ID")}`, "Total Pengeluaran"]}
+                          contentStyle={{
+                            backgroundColor: "#0f172a",
+                            borderColor: "#334155",
+                            borderRadius: "14px",
+                            color: "#fff",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.3)",
+                          }}
+                        />
+                        <Bar dataKey="value" fill="#10b981" radius={[8, 8, 0, 0]} barSize={40} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-5 space-y-2">
+                  <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider block text-center">
+                    Persentase Proporsi (%)
+                  </span>
+                  <div className="h-64 w-full flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={categoryChartData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={50}
+                          outerRadius={80}
+                          paddingAngle={4}
+                          dataKey="value"
+                        >
+                          {categoryChartData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(val: any) => [`Rp ${Number(val).toLocaleString("id-ID")}`, "Total"]}
+                          contentStyle={{
+                            backgroundColor: "#0f172a",
+                            borderColor: "#334155",
+                            borderRadius: "14px",
+                            color: "#fff",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                  <Info className="w-3.5 h-3.5 text-blue-500" /> Ringkasan Persentase Kategori:
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {categoryChartData.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200/80 text-[11px] shadow-2xs"
+                    >
+                      <span
+                        className="w-3 h-3 rounded-full shrink-0"
+                        style={{ backgroundColor: item.color }}
+                      />
+                      <span className="font-extrabold text-slate-800">{item.name}:</span>
+                      <span className="font-mono text-slate-700 font-bold">
+                        Rp {item.value.toLocaleString("id-ID")} ({item.percentage}%)
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {chartMode === "daily" && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
+                  Grafik Fluktuasi Pengeluaran Harian (Tanggal vs Nominal Rp)
+                </span>
+                <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                  {dailyTrendData.length} Hari Transaksi
+                </span>
+              </div>
+
+              {dailyTrendData.length > 0 ? (
+                <div className="h-64 w-full pt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={dailyTrendData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                      <defs>
+                        <linearGradient id="colorTrend" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="displayDate" tick={{ fontSize: 11, fontWeight: 700, fill: "#334155" }} />
+                      <YAxis
+                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        tickFormatter={(v) => `Rp ${(v / 1000).toLocaleString("id-ID")}k`}
+                      />
+                      <Tooltip
+                        formatter={(val: any) => [`Rp ${Number(val).toLocaleString("id-ID")}`, "Pengeluaran Harian"]}
+                        labelFormatter={(lbl: any, payload: any) => payload?.[0]?.payload?.date || lbl}
+                        contentStyle={{
+                          backgroundColor: "#0f172a",
+                          borderColor: "#334155",
+                          borderRadius: "14px",
+                          color: "#fff",
+                          fontSize: "12px",
+                          fontWeight: "bold",
+                        }}
+                      />
+                      <Area type="monotone" dataKey="total" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorTrend)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 italic text-center py-8">Belum ada data tren harian di kriteria ini.</p>
+              )}
+            </div>
+          )}
+
+          {chartMode === "topProducts" && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
+                  Top 5 Produk Dengan Pengeluaran Nominal Tertinggi
+                </span>
+                <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
+                  Produk Terboros
+                </span>
+              </div>
+
+              {topProductsData.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3 pt-1">
+                  {topProductsData.map((prod, idx) => (
+                    <div key={idx} className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/90 space-y-1.5">
+                      <span className="text-[10px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
+                        Rank #{idx + 1}
+                      </span>
+                      <h4 className="font-extrabold text-slate-900 text-xs truncate pt-1">{prod.name}</h4>
+                      <p className="text-sm font-black font-mono text-emerald-700">
+                        Rp {prod.totalSpend.toLocaleString("id-ID")}
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        Total Beli: {prod.qty} item • [{prod.category}]
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 italic text-center py-8">Belum ada data produk terboros di kriteria ini.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SEARCH & FILTER BAR DIRECTLY ABOVE RECEIPTS HISTORY */}
+      <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-2xs space-y-4">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          {/* Search Box Input */}
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Cari toko, nama barang, atau metode bayar..."
+              className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all bg-slate-50/50"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* DATE RANGE FILTER DROPDOWN */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+              <Calendar className="w-4 h-4 text-blue-600" /> PERIODE:
+            </span>
+
+            <div className="relative inline-block">
+              <select
+                value={dateRangeFilter}
+                onChange={(e) => setDateRangeFilter(e.target.value as any)}
+                className="appearance-none pl-3.5 pr-8 py-2 rounded-xl border border-slate-300 text-xs font-extrabold text-slate-800 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs cursor-pointer hover:border-slate-400 transition-colors"
+              >
+                <option value="all">Semua Waktu</option>
+                <option value="today">Hari Ini</option>
+                <option value="7days">7 Hari Terakhir</option>
+                <option value="month">Bulan Ini</option>
+                <option value="custom">Kustom Tanggal...</option>
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          </div>
+        </div>
+
+        {dateRangeFilter === "custom" && (
+          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150 w-fit">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-bold text-slate-800 bg-white"
+            />
+            <span className="text-xs text-slate-400 font-bold">s/d</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-bold text-slate-800 bg-white"
+            />
+          </div>
+        )}
+
+        {/* Parent Category Filter Tabs & KELOLA KATEGORI BUTTON AT FAR RIGHT */}
+        <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider mr-1 shrink-0 flex items-center gap-1">
+              <Layers className="w-3.5 h-3.5 text-emerald-600" /> KATEGORI:
+            </span>
+            {parentTabs.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => handleSelectParentCategory(cat)}
+                className={`px-4 py-1.5 rounded-full text-xs font-extrabold transition-all duration-150 whitespace-nowrap active:scale-95 ${
+                  selectedCategory === cat
+                    ? "bg-slate-900 text-white shadow-xs"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Small Compact Icon Button: Filter Status */}
+            <button
+              type="button"
+              onClick={() => setShowStatusFilterPanel((prev) => !prev)}
+              className={`relative p-2 rounded-xl transition-all border shadow-2xs active:scale-95 flex items-center justify-center shrink-0 ${
+                showStatusFilterPanel || selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab"
+                  ? "bg-slate-900 text-emerald-400 border-slate-800"
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
+              }`}
+              title="Filter Status Pembayaran & Talangan"
+            >
+              <Filter className="w-4 h-4" />
+              {(selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab") && (
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-white animate-pulse" />
+              )}
+            </button>
+
+            {/* Small Compact Icon Button: Kelola Kategori */}
+            <button
+              type="button"
+              onClick={() => setShowManageCategoryModal(true)}
+              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all shrink-0 border border-slate-200 hover:border-slate-300 active:scale-95 flex items-center justify-center"
+              title="Kelola Kategori & Sub-Kategori"
+            >
+              <Settings className="w-4 h-4 text-slate-700" />
+            </button>
+          </div>
+        </div>
+
+        {/* Dynamic Sub-Category Filter Pills */}
+        {selectedCategory !== "Semua" && subCategoryOptions.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pt-3 border-t border-slate-200/70 bg-emerald-50/40 p-3 rounded-2xl border border-emerald-100/60 transition-all duration-200">
+            <span className="text-[11px] font-black text-emerald-800 flex items-center gap-1 shrink-0 uppercase tracking-wider mr-1">
+              <ListFilter className="w-3.5 h-3.5 text-emerald-600" /> SUB-KATEGORI ({selectedCategory.toUpperCase()}):
+            </span>
+
+            {subCategoryOptions.map((subName) => (
+              <button
+                key={subName}
+                type="button"
+                onClick={() => setSelectedSubCategory(subName)}
+                className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all duration-150 whitespace-nowrap active:scale-95 ${
+                  selectedSubCategory === subName
+                    ? "bg-emerald-700 text-white shadow-xs"
+                    : "bg-white text-emerald-800 hover:bg-emerald-100 border border-emerald-200"
+                }`}
+              >
+                {subName}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Dedicated Payment Status & Sub-Status Filter Panel (Appears when Filter Status button is clicked or filter active) */}
+        {(showStatusFilterPanel || selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab") && (
+          <div className="space-y-2.5 pt-3 border-t border-slate-200/70 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1">
+                <CheckSquare className="w-3.5 h-3.5 text-emerald-600" /> STATUS PEMBAYARAN:
+              </span>
+
+              {(selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedStatusFilter("Semua Status")
+                    setSelectedPersonFilter("Semua Penanggung Jawab")
+                  }}
+                  className="text-[11px] font-bold text-red-600 hover:text-red-700 underline"
+                >
+                  Reset Filter Status
+                </button>
+              )}
+            </div>            <div className="flex items-center gap-1.5 overflow-x-auto">
+              {["Semua Status", "Lunas", "Belum Direimburse / Tempo"].map((statusOpt) => (
+                <button
+                  key={statusOpt}
+                  type="button"
+                  onClick={() => {
+                    setSelectedStatusFilter(statusOpt)
+                    if (statusOpt === "Lunas") {
+                      setSelectedPersonFilter("Semua Penanggung Jawab")
+                    }
+                  }}
+                  className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all duration-150 whitespace-nowrap active:scale-95 ${
+                    selectedStatusFilter === statusOpt
+                      ? "bg-slate-900 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200"
+                  }`}
+                >
+                  {statusOpt}
+                </button>
+              ))}
+            </div>
+
+            {/* Sub-Status: Penanggung Jawab / Talangan (Only shown if NOT filtered by Lunas) */}
+            {selectedStatusFilter !== "Lunas" && availablePersonNames.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pt-1 bg-amber-50/60 p-2.5 rounded-2xl border border-amber-200/70 transition-all animate-in fade-in duration-150">
+                <span className="text-[11px] font-black text-amber-900 flex items-center gap-1 shrink-0 uppercase tracking-wider mr-1">
+                  <User className="w-3.5 h-3.5 text-amber-600" /> SUB-STATUS (TALANGAN):
+                </span>
+
+                {["Semua Penanggung Jawab", ...availablePersonNames].map((personName) => (
+                  <button
+                    key={personName}
+                    type="button"
+                    onClick={() => setSelectedPersonFilter(personName)}
+                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all duration-150 whitespace-nowrap active:scale-95 ${
+                      selectedPersonFilter === personName
+                        ? "bg-amber-600 text-white shadow-xs"
+                        : "bg-white text-amber-900 hover:bg-amber-100 border border-amber-200"
+                    }`}
+                  >
+                    {personName === "Semua Penanggung Jawab" ? "Semua Orang" : personName}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* HORIZONTAL LIST VIEW: DAFTAR RIWAYAT STRUK BELANJA */}
+      <div className="space-y-3">
+        {/* Header Bar + Bulk Action Toolbar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1">
+          <div className="flex items-center gap-2">
+            <h3 className="font-extrabold text-slate-900 text-base sm:text-lg flex items-center gap-2">
+              <ReceiptIcon className="w-5 h-5 text-emerald-600" />
+              Daftar Riwayat Struk Belanja ({filteredReceipts.length})
+            </h3>
+            {selectedReceiptIds.length > 0 && (
+              <span className="text-xs font-extrabold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                {selectedReceiptIds.length} Dipilih
+              </span>
+            )}
+          </div>
+
+          {/* Bulk Action Controls */}
+          {selectedReceiptIds.length > 0 && (
+            <div className="flex items-center gap-2 animate-in fade-in duration-150">
+              <button
+                type="button"
+                onClick={handleBulkDelete}
+                disabled={isBulkDeleting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs transition-colors shadow-xs disabled:opacity-50"
+              >
+                {isBulkDeleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                Hapus Terpilih ({selectedReceiptIds.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedReceiptIds([])}
+                className="px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs transition-colors"
+              >
+                Batal Pilih
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* STATIC TABLE HEADER BAR (FOR HORIZONTAL ROW COLUMN LANDMARKS) */}
+        {!isInitialLoading && filteredReceipts.length > 0 && (
+          <div className="hidden lg:grid grid-cols-12 gap-3 px-4 py-2.5 bg-slate-100/80 rounded-xl border border-slate-200/90 text-[11px] font-black uppercase tracking-wider text-slate-500">
+            <div className="col-span-2 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={isAllSelected}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer"
+                title="Pilih Semua Baris"
+              />
+              <span>TANGGAL</span>
+            </div>
+            <div className="col-span-2">TOKO & KATEGORI</div>
+            <div className="col-span-3">RINGKASAN PRODUK</div>
+            <div className="col-span-1 text-center">METODE</div>
+            <div className="col-span-2 text-right">TOTAL NETTO</div>
+            <div className="col-span-2 text-right pr-2">AKSI</div>
+          </div>
+        )}
+
+        {/* LOADING STATE */}
+        {isInitialLoading ? (
+          <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center space-y-3">
+            <RefreshCw className="w-8 h-8 animate-spin text-emerald-600 mx-auto" />
+            <p className="text-xs font-semibold text-slate-500">Memuat data riwayat nota...</p>
+          </div>
+        ) : filteredReceipts.length === 0 ? (
+          /* EMPTY STATE */
+          <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center space-y-4 transition-all duration-200">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
+              <ReceiptIcon className="w-8 h-8" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="font-extrabold text-slate-900 text-base">Belum Ada Nota Di Kriteria Ini</h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                Coba sesuaikan filter kategori, kata kunci pencarian, atau periode waktu Anda.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onScanNewReceipt}
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/20"
+            >
+              <Sparkles className="w-4 h-4" /> Scan Struk Baru Sekarang
+            </button>
+          </div>
+        ) : (
+          /* HORIZONTAL ROW-BASED CARDS CONTAINER */
+          <div className="space-y-2">
+            {paginatedReceipts.map((receipt) => {
+              const isSelected = selectedReceiptIds.includes(receipt.id)
+
+              const cardPreviewItems = isSubCategoryActive
+                ? receipt.items.filter((item) => {
+                    const sub = (item.subCategory || "").toLowerCase()
+                    const cat = (item.category || "").toLowerCase()
+                    return sub.includes(subQ) || cat.includes(subQ)
+                  })
+                : receipt.items
+
+              const cardDisplayNetto = isSubCategoryActive
+                ? cardPreviewItems.reduce((acc, item) => acc + item.price * item.quantity, 0)
+                : receipt.totalAmount
+
+              const productSummaryText = cardPreviewItems
+                .slice(0, 2)
+                .map((i) => `${i.name} (${i.quantity}x)`)
+                .join(", ") + (cardPreviewItems.length > 2 ? ` (+${cardPreviewItems.length - 2} items)` : "")
+
+              const categoryPill = Array.from(new Set(receipt.items.map((i) => i.category || "Lain-lain")))[0] || "Umum"
+
+              const dateParts = receipt.date.split("-")
+              const formattedDateStr =
+                dateParts.length === 3
+                  ? `${dateParts[2]} ${new Date(receipt.date).toLocaleDateString("id-ID", { month: "short" })} ${dateParts[0]}`
+                  : receipt.date
+
+              return (
+                <div
+                  key={receipt.id}
+                  onClick={() => setSelectedReceipt(receipt)}
+                  style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}
+                  className={`bg-white rounded-xl border transition-all duration-200 px-4 py-3.5 cursor-pointer ${
+                    isSelected
+                      ? "border-emerald-500 bg-emerald-50/30"
+                      : "border-slate-200/90 hover:border-emerald-500 hover:bg-slate-50/70"
+                  }`}
+                >
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center text-xs">
+                    {/* KOLOM 1: Checkbox & Tanggal */}
+                    <div className="lg:col-span-2 flex items-center gap-2.5 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => toggleSelectRow(receipt.id)}
+                        className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer shrink-0"
+                      />
+                      <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/80 text-[11px] whitespace-nowrap">
+                        {formattedDateStr}
+                      </span>
+                    </div>
+
+                    {/* KOLOM 2: Identitas Toko & Category Pill */}
+                    <div className="lg:col-span-2 space-y-0.5 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <Store className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <h4 className="font-black text-slate-900 text-sm truncate">{receipt.merchantName}</h4>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="inline-block px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 font-bold text-[10px] border border-emerald-200/60 truncate max-w-full">
+                          {categoryPill}
+                        </span>
+                        {isSubCategoryActive && (
+                          <span className="inline-block px-2 py-0.5 rounded-md bg-purple-50 text-purple-800 font-bold text-[10px] border border-purple-200/60 truncate max-w-full">
+                            {selectedSubCategory}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* KOLOM 3: Ringkasan Produk (Truncated Single Line) */}
+                    <div className="lg:col-span-3 min-w-0">
+                      <p
+                        className="text-slate-600 font-medium truncate text-xs"
+                        title={productSummaryText}
+                      >
+                        {productSummaryText}
+                      </p>
+                    </div>
+
+                    {/* KOLOM 4: Metode Bayar */}
+                    <div className="lg:col-span-1 text-left lg:text-center shrink-0">
+                      <span className="inline-block px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-bold text-[10px] whitespace-nowrap border border-slate-200">
+                        {receipt.paymentMethod || "Cash"}
+                      </span>
+                    </div>
+
+                    {/* KOLOM 5: Total Netto (Nominal Paling Menonjol TANPA ,00) */}
+                    <div className="lg:col-span-2 text-left lg:text-right pr-1 shrink-0">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block lg:hidden">Total Netto:</span>
+                      <span className="font-black font-mono text-emerald-600 text-sm sm:text-base tracking-tight whitespace-nowrap">
+                        Rp {Math.round(cardDisplayNetto).toLocaleString("id-ID")}
+                      </span>
+                    </div>
+
+                    {/* KOLOM 6: Action Buttons Group (Status, Lunasi, Edit & Hapus) */}
+                    <div className="lg:col-span-2 flex items-center justify-end gap-1.5 border-t lg:border-t-0 border-slate-100 pt-2 lg:pt-0 mt-1 lg:mt-0 shrink-0">
+                      {!isReceiptSettled(receipt.paymentStatus) ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleSettleReceipt(receipt)
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-emerald-700 text-white font-black text-[11px] transition-all shadow-2xs active:scale-95 shrink-0"
+                          title="Tandai Nota Sudah Direimburse / Lunasi"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Lunasi
+                        </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 font-bold text-[10px] border border-emerald-200 shrink-0">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Lunas
+                        </span>
+                      )}
+
+                      {onEditReceipt && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onEditReceipt(receipt)
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors shrink-0"
+                          title="Edit Data Nota"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          triggerDeleteConfirm(receipt)
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors shrink-0"
+                        title="Hapus Nota"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* PAGINATION COMPONENT (PAGE 1 OF X, PREV, NEXT, ITEMS PER PAGE) */}
+        {!isInitialLoading && filteredReceipts.length > 0 && (
+          <div className="bg-white px-4 py-3 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-slate-600 font-semibold">
+              <span>Menampilkan {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, filteredReceipts.length)} dari {filteredReceipts.length} Nota</span>
+              
+              <div className="relative inline-block ml-2">
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value))
+                    setCurrentPage(1)
+                  }}
+                  className="appearance-none pl-2.5 pr-6 py-1 rounded-lg border border-slate-300 text-xs font-bold text-slate-800 bg-white cursor-pointer"
+                >
+                  <option value={10}>10 / hal</option>
+                  <option value={20}>20 / hal</option>
+                  <option value={50}>50 / hal</option>
+                  <option value={100}>100 / hal</option>
+                </select>
+                <ChevronDown className="w-3 h-3 text-slate-500 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-slate-500 font-bold mr-2">
+                Halaman {currentPage} dari {totalPages}
+              </span>
+
+              <button
+                type="button"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-300 font-bold text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-4 h-4" /> Prev
+              </button>
+
+              <button
+                type="button"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-300 font-bold text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* AUTHENTIC BANK STATEMENT (MANDIRI REFERENCE STYLE) A4 PRINT MODAL */}
+      {showStatementPrintModal && (
+        <div id="statement-print-modal-overlay" className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-5xl max-h-[96vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Control Bar */}
+            <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-slate-900 text-white no-print">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                    Pratinjau Cetak Laporan Rekapitulasi Pembukuan PDF
+                  </h3>
+                  <p className="text-xs text-slate-300 font-medium">
+                    Tampilan presisi format dokumen resmi untuk pencetakan A4.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExportConfirmFormat("statement")
+                    handleProceedExport()
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs transition-colors shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5" /> Unduh Excel Laporan
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTriggerA4Print}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/30"
+                >
+                  <Printer className="w-4 h-4 text-emerald-200" /> Cetak / Save PDF (A4)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowStatementPrintModal(false)}
+                  className="p-2 text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* COMPACT PRINTABLE PDF DOCUMENT BODY (FIT TO 1 PAGE A4 PORTRAIT) */}
+            <div id="printable-rekening-koran" className="p-6 sm:p-8 bg-white text-slate-900 space-y-3 font-sans text-xs overflow-y-auto">
+              {/* Header 2 Kolom (Compact Vertical Margin) */}
+              <div className="flex items-start justify-between border-b border-slate-200 pb-2.5 mb-2">
+                <div className="space-y-1">
+                  <div>
+                    <h1 className="text-lg font-black text-slate-900 tracking-tight leading-tight">
+                      Laporan Rekapitulasi Pembukuan Nota
+                    </h1>
+                    <p className="text-[10.5px] font-bold text-slate-500 italic leading-none">
+                      (Receipt Accounting Summary Report)
+                    </p>
+                  </div>
+
+                  {/* Metadata Info List (Compact 11px) */}
+                  <div className="space-y-0.5 text-[11px] font-semibold text-slate-800 pt-0.5 leading-tight">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-24 text-slate-500 font-normal">Periode</span>
+                      <span>:</span>
+                      <span className="font-bold">{statementDateRange.from} s/d {statementDateRange.to}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-24 text-slate-500 font-normal">No. Registrasi</span>
+                      <span>:</span>
+                      <span className="font-bold font-mono">140008801996 - NOTA PHOTO PEMBUKUAN</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-24 text-slate-500 font-normal">Kategori Utama</span>
+                      <span>:</span>
+                      <span className="font-bold">{selectedCategory}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-24 text-slate-500 font-normal">Mata Uang</span>
+                      <span>:</span>
+                      <span className="font-bold">IDR</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Logo Brand */}
+                <div className="flex items-center gap-1.5 text-blue-900 font-black text-lg tracking-tighter shrink-0 pt-0.5">
+                  <div className="w-7 h-7 rounded-lg bg-blue-800 text-white flex items-center justify-center font-bold text-xs">
+                    NP
+                  </div>
+                  <span>nota-photo</span>
+                </div>
+              </div>
+
+              {/* REFACTORED HIGH-READABILITY COMPACT TABLE (EXACT 100% PROPORTIONS) */}
+              <div className="pt-0.5">
+                <table className="w-full text-left border-collapse font-sans text-xs">
+                  <thead>
+                    <tr className="bg-[#f1f5f9] text-slate-900 font-bold border border-slate-300 text-[10.5px]">
+                      <th style={{ width: "12%" }} className="px-1.5 py-1.5 text-center border-r border-slate-300">Tanggal</th>
+                      <th style={{ width: "14%" }} className="px-1.5 py-1.5 text-left border-r border-slate-300">No. Ref</th>
+                      <th style={{ width: "16%" }} className="px-2 py-1.5 text-left border-r border-slate-300">Toko</th>
+                      <th style={{ width: "38%" }} className="px-2 py-1.5 text-left border-r border-slate-300">Rincian Barang & Kategori</th>
+                      <th style={{ width: "10%" }} className="px-2 py-1.5 text-right border-r border-slate-300">Pengeluaran</th>
+                      <th style={{ width: "10%" }} className="px-2 py-1.5 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 border-x border-b border-slate-300 text-xs font-sans">
+                    {statementTableRows.length > 0 ? (
+                      statementTableRows.map((row, idx) => (
+                        <tr key={row.id} className={idx % 2 === 1 ? "bg-[#f8fafc]" : "bg-white"}>
+                          {/* Tanggal (12%, center) */}
+                          <td style={{ verticalAlign: "top", padding: "4px 6px" }} className="text-center text-slate-800 border-r border-slate-200 font-mono text-[10.5px] whitespace-nowrap">
+                            {row.date}
+                          </td>
+
+                          {/* No. Ref (14%, left, font-mono) */}
+                          <td style={{ verticalAlign: "top", padding: "4px 6px" }} className="text-slate-800 border-r border-slate-200 font-mono text-[10.5px] whitespace-nowrap">
+                            {row.refNo}
+                          </td>
+
+                          {/* Toko (16%, left, font-bold) */}
+                          <td style={{ verticalAlign: "top", padding: "4px 6px" }} className="text-slate-900 border-r border-slate-200 font-bold text-[11px]">
+                            {row.merchantName}
+                          </td>
+
+                          {/* Rincian Barang & Kategori (38%, left, Area Paling Luas, Compact List) */}
+                          <td style={{ verticalAlign: "top", padding: "4px 6px" }} className="text-slate-900 border-r border-slate-200">
+                            <span className="inline-block px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-900 font-bold text-[9px] border border-emerald-200 mb-0.5">
+                              [{row.categories || "Umum"}]
+                            </span>
+                            <ul style={{ margin: "2px 0", paddingLeft: "12px" }} className="list-disc space-y-0 text-[9.5px] text-slate-700 font-medium leading-tight">
+                              {row.rawItems.map((item, itemIdx) => (
+                                <li key={itemIdx}>
+                                  {item.name} <span className="font-bold text-slate-900">x{item.quantity}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </td>
+
+                          {/* Pengeluaran (10%, right, clean IDR) */}
+                          <td style={{ verticalAlign: "top", padding: "4px 6px" }} className="text-right font-bold text-emerald-700 border-r border-slate-200 font-mono text-[10.5px] whitespace-nowrap">
+                            Rp {Math.round(row.debit).toLocaleString("id-ID")}
+                          </td>
+
+                          {/* Saldo (10%, right, clean IDR) */}
+                          <td style={{ verticalAlign: "top", padding: "4px 6px" }} className="text-right font-bold text-slate-900 font-mono text-[10.5px] whitespace-nowrap">
+                            Rp {Math.round(row.balance).toLocaleString("id-ID")}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-6 text-center text-slate-400 italic">
+                          Tidak ada data transaksi di kriteria ini.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Total Summary Footer Box */}
+              <div className="p-4 rounded-2xl bg-slate-900 text-white flex items-center justify-between shadow-xs">
+                <div className="space-y-0.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+                    Total Akumulasi Pengeluaran
+                  </span>
+                  <p className="text-xs text-slate-300">
+                    (Accumulated Outflow Statement Total)
+                  </p>
+                </div>
+                <span className="font-mono text-xl sm:text-2xl font-black text-emerald-400">
+                  Rp {Math.round(totalSpend).toLocaleString("id-ID")}
+                </span>
+              </div>
+
+              {/* Footer Page Number */}
+              <div className="text-center pt-4 text-[11px] font-medium text-slate-600">
+                Page 1 of 1
+              </div>
+            </div>
+
+            {/* Modal Bottom Actions */}
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between no-print">
+              <span className="text-xs text-slate-500 font-semibold">
+                Klik tombol "Cetak / Save PDF (A4)" untuk menghasilkan file PDF resmi.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowStatementPrintModal(false)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXPORT CONFIRMATION MODAL */}
+      {exportConfirmFormat && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                Konfirmasi Ekspor Laporan ({exportConfirmFormat.toUpperCase()})
+              </h3>
+              <button
+                type="button"
+                onClick={() => setExportConfirmFormat(null)}
+                className="text-slate-400 hover:text-slate-700 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-2 text-xs text-emerald-950">
+              <div className="flex items-center gap-2 font-bold text-emerald-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Siap Mendownload Laporan Rekapitulasi</span>
+              </div>
+              <p className="text-[11px] text-emerald-800 leading-relaxed">
+                Laporan akan diurutkan secara **Kronologis (Tanggal Terlama ke Terbaru)** agar rapi saat dibuka di Microsoft Excel atau Google Sheets.
+              </p>
+            </div>
+
+            <div className="space-y-2 text-xs text-slate-700 bg-slate-50 p-4 rounded-2xl border border-slate-200 font-medium">
+              <p className="flex justify-between">
+                <span>Filter Kategori Utama:</span>
+                <span className="font-bold text-slate-900">{selectedCategory}</span>
+              </p>
+              <p className="flex justify-between">
+                <span>Filter Sub-Kategori:</span>
+                <span className="font-bold text-slate-900">{selectedSubCategory}</span>
+              </p>
+              <p className="flex justify-between">
+                <span>Jumlah Nota Diekspor:</span>
+                <span className="font-bold font-mono text-emerald-700">{filteredReceipts.length} Struk</span>
+              </p>
+              <p className="flex justify-between border-t border-slate-200 pt-1.5 mt-1.5 font-bold">
+                <span>Total Netto Rekap:</span>
+                <span className="font-mono text-emerald-700">Rp {totalSpend.toLocaleString("id-ID")}</span>
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setExportConfirmFormat(null)}
+                className="flex-1 py-3 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 transition-colors"
+              >
+                Batal
+              </button>
+
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={handleProceedExport}
+                className="flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs transition-all shadow-md shadow-emerald-600/30 disabled:opacity-50"
+              >
+                {isExporting ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ArrowDownToLine className="w-4 h-4" />
+                )}
+                Unduh {exportConfirmFormat.toUpperCase()}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HIERARCHICAL CATEGORY MANAGEMENT MODAL */}
+      {showManageCategoryModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-xl p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-slate-900 text-base sm:text-lg flex items-center gap-2">
+                <Settings className="w-5 h-5 text-emerald-600" />
+                Kelola Kategori & Sub-Kategori
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowManageCategoryModal(false)}
+                className="text-slate-400 hover:text-slate-700 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* CREATE CATEGORY / SUB-CATEGORY FORM */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3 shrink-0">
+              <div className="flex bg-white p-1 rounded-xl border border-slate-200 text-xs font-bold w-fit">
+                <button
+                  type="button"
+                  onClick={() => setNewCatType("parent")}
+                  className={`px-3 py-1.5 rounded-lg transition-all ${
+                    newCatType === "parent" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600"
+                  }`}
+                >
+                  + Kategori Utama
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewCatType("sub")}
+                  className={`px-3 py-1.5 rounded-lg transition-all ${
+                    newCatType === "sub" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600"
+                  }`}
+                >
+                  + Sub-Kategori
+                </button>
+              </div>
+
+              {newCatType === "sub" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Pilih Kategori Induk Utama</label>
+                  <select
+                    value={selectedParentId}
+                    onChange={(e) => setSelectedParentId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 bg-white"
+                  >
+                    {hierarchy.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newCatNameInput}
+                  onChange={(e) => setNewCatNameInput(e.target.value)}
+                  placeholder={newCatType === "parent" ? "Nama Kategori Utama..." : "Nama Sub-Kategori Baru..."}
+                  className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 text-xs font-semibold text-slate-900 bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={handleCreateCategory}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition-colors shadow-sm shrink-0"
+                >
+                  <Plus className="w-4 h-4" /> Tambah
+                </button>
+              </div>
+            </div>
+
+            {/* READ & UPDATE / DELETE CATEGORY LIST */}
+            <div className="space-y-2 overflow-y-auto pr-1 flex-1">
+              <div className="flex items-center justify-between text-xs font-extrabold text-slate-700 uppercase tracking-wider">
+                <span>Struktur Kategori ({hierarchy.length})</span>
+                <span className="text-[10px] text-slate-400 font-normal">Bisa Edit & Hapus</span>
+              </div>
+
+              <div className="space-y-3">
+                {hierarchy.length > 0 ? (
+                  hierarchy.map((parent) => (
+                    <div key={parent.id} className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-2">
+                      {/* Parent Item Header */}
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-900 border-b border-slate-100 pb-2">
+                        {editingCatId === parent.id ? (
+                          <div className="flex items-center gap-2 w-full">
+                            <input
+                              type="text"
+                              value={editingCatName}
+                              onChange={(e) => setEditingCatName(e.target.value)}
+                              className="flex-1 px-2 py-1 rounded-lg border border-emerald-500 text-xs font-bold text-slate-900"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateCategory(parent.id)}
+                              className="p-1 bg-emerald-600 text-white rounded-lg"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingCatId(null)}
+                              className="p-1 bg-slate-200 text-slate-700 rounded-lg"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="flex items-center gap-1.5 text-slate-900">
+                              <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                              {parent.name}
+                            </span>
+
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCatId(parent.id)
+                                  setEditingCatName(parent.name)
+                                }}
+                                className="p-1 text-slate-400 hover:text-blue-600 rounded"
+                                title="Edit Kategori Utama"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCategory(parent.id, parent.name)}
+                                className="p-1 text-slate-400 hover:text-red-600 rounded"
+                                title="Hapus Kategori Utama"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Sub-Categories List */}
+                      <div className="pl-4 space-y-1">
+                        {parent.subCategories.map((sub) => (
+                          <div key={sub.id} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-none">
+                            {editingCatId === sub.id ? (
+                              <div className="flex items-center gap-2 w-full">
+                                <input
+                                  type="text"
+                                  value={editingCatName}
+                                  onChange={(e) => setEditingCatName(e.target.value)}
+                                  className="flex-1 px-2 py-1 rounded-lg border border-emerald-500 text-xs font-bold text-slate-900"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateCategory(sub.id)}
+                                  className="p-1 bg-emerald-600 text-white rounded-lg"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingCatId(null)}
+                                  className="p-1 bg-slate-200 text-slate-700 rounded-lg"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="text-slate-600 font-medium flex items-center gap-1 text-[11px]">
+                                  <ChevronRight className="w-3 h-3 text-slate-400" />
+                                  {sub.name}
+                                </span>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingCatId(sub.id)
+                                      setEditingCatName(sub.name)
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-blue-600 rounded"
+                                    title="Edit Sub-Kategori"
+                                  >
+                                    <Edit className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteCategory(sub.id, sub.name)}
+                                    className="p-1 text-slate-400 hover:text-red-600 rounded"
+                                    title="Hapus Sub-Kategori"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400 italic py-4 text-center">
+                    Tidak ada kategori tersisa di database. Tambahkan kategori baru di atas!
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowManageCategoryModal(false)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors"
+              >
+                Selesai
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM DELETE CONFIRMATION MODAL */}
+      {deletingReceipt && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base">Hapus Nota Permanen?</h3>
+                <p className="text-xs text-slate-500">Tindakan ini tidak dapat dibatalkan.</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1">
+              <p className="font-bold text-slate-800">
+                Toko/PT: <span className="text-slate-900">{deletingReceipt.merchantName}</span>
+              </p>
+              <p className="text-slate-600">
+                Tanggal: {deletingReceipt.date} • Total:{" "}
+                <span className="font-bold font-mono text-emerald-700">
+                  Rp {deletingReceipt.totalAmount.toLocaleString("id-ID")}
+                </span>
+              </p>
+              <p className="text-slate-500 text-[11px]">
+                {deletingReceipt.items.length} rincian barang produk akan ikut dihapus.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeletingReceipt(null)}
+                className="flex-1 py-3 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={confirmDeleteReceipt}
+                className="flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-xl bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs transition-colors shadow-md shadow-red-600/30"
+              >
+                {isDeleting ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+                Ya, Hapus Nota
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FULL RECEIPT DETAIL MODAL (SHOWS ALL ITEMS OF THE RECEIPT) */}
+      {selectedReceipt && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                    {selectedReceipt.date}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-700 bg-slate-200 px-2.5 py-0.5 rounded-full">
+                    {selectedReceipt.paymentMethod || "Cash"}
+                  </span>
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2 pt-1">
+                  <Store className="w-5 h-5 text-slate-600" />
+                  {selectedReceipt.merchantName}
+                </h3>
+              </div>
+
+              <button
+                onClick={() => setSelectedReceipt(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-12 gap-6">
+              <div
+                onClick={() => selectedReceipt.imageUrl && setLightboxImageUrl(selectedReceipt.imageUrl)}
+                className={`md:col-span-5 bg-slate-900 rounded-2xl p-4 flex items-center justify-center min-h-[300px] relative group ${
+                  selectedReceipt.imageUrl ? "cursor-zoom-in" : ""
+                }`}
+              >
+                {selectedReceipt.imageUrl ? (
+                  <>
+                    {/* eslint-disable-next-html-element */}
+                    <img
+                      src={selectedReceipt.imageUrl}
+                      alt="Original Receipt"
+                      className="max-h-[420px] w-auto object-contain rounded-xl shadow-lg group-hover:opacity-85 transition-opacity"
+                    />
+                    <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-2xs rounded-2xl">
+                      <span className="px-4 py-2 rounded-2xl bg-slate-900/90 text-white font-extrabold text-xs border border-slate-700 flex items-center gap-2 shadow-2xl">
+                        <Maximize2 className="w-4 h-4 text-emerald-400" /> Klik Untuk Pop-Up Lightbox Zoom
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center text-slate-500 space-y-2">
+                    <ReceiptIcon className="w-12 h-12 mx-auto" />
+                    <p className="text-xs">Tidak ada foto nota tersimpan</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="md:col-span-7 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-emerald-600" />
+                    Seluruh Item Nota ({selectedReceipt.items.length})
+                  </h4>
+                </div>
+
+                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                  {selectedReceipt.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs"
+                    >
+                      <div className="space-y-0.5">
+                        <p className="font-bold text-slate-900">{item.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-200 text-slate-700">
+                            {item.category}
+                          </span>
+                          {item.subCategory && item.subCategory !== "Umum" && (
+                            <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              {item.subCategory}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-right font-mono">
+                        <p className="font-bold text-slate-900">
+                          Rp {item.price.toLocaleString("id-ID")}
+                        </p>
+                        <span className="text-[10px] text-slate-500">Qty: {item.quantity}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-900 text-white space-y-2 font-mono text-xs">
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Subtotal Barang</span>
+                    <span>Rp {(selectedReceipt.subtotal || selectedReceipt.items.reduce((a, b) => a + b.price * b.quantity, 0)).toLocaleString("id-ID")}</span>
+                  </div>
+                  {selectedReceipt.taxAmount ? (
+                    <div className="flex items-center justify-between text-amber-400">
+                      <span>Pajak (PPN)</span>
+                      <span>+ Rp {selectedReceipt.taxAmount.toLocaleString("id-ID")}</span>
+                    </div>
+                  ) : null}
+                  <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-emerald-400 font-bold text-sm">
+                    <span>Netto Total Akhir</span>
+                    <span>Rp {selectedReceipt.totalAmount.toLocaleString("id-ID")}</span>
+                  </div>
+                </div>
+
+                {selectedReceipt.note && (
+                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs space-y-1">
+                    <span className="font-bold">Catatan:</span>
+                    <p>{selectedReceipt.note}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {!isReceiptSettled(selectedReceipt.paymentStatus) && (
+                  <button
+                    type="button"
+                    onClick={() => handleSettleReceipt(selectedReceipt)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition-colors border border-emerald-500 shadow-xs"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> Tandai Sudah Direimburse / Lunasi
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => triggerDeleteConfirm(selectedReceipt)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs transition-colors border border-red-200"
+                >
+                  <Trash2 className="w-4 h-4" /> Hapus Nota Ini
+                </button>
+
+                {onEditReceipt && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const r = selectedReceipt
+                      setSelectedReceipt(null)
+                      onEditReceipt(r)
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition-colors border border-blue-200"
+                  >
+                    <Edit className="w-4 h-4" /> Edit Ulang Data Nota
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedReceipt(null)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Interactive Lightbox Modal (Renders at front layer) */}
+      {lightboxImageUrl && (
+        <ImageInteractiveLightbox
+          imageUrl={lightboxImageUrl}
+          altText="Foto Struk Original"
+          onClose={() => setLightboxImageUrl(null)}
+        />
+      )}
+    </div>
+  )
+}

@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Receipt {
+  id            String        @id @default(uuid())
+  merchantName  String        @default("Nota / Toko")
+  date          String        // YYYY-MM-DD format
+  imageUrl      String?       @db.LongText
+  subtotal      Float         @default(0)
+  taxAmount     Float         @default(0)
+  totalAmount   Float         @default(0)
+  paymentMethod String        @default("Cash") // Cash, Transfer Bank, QRIS, Kredit / Debit, Tempo / Hutang
+  paymentStatus String        @default("Lunas") // Lunas, Belum Lunas / Tempo
+  note          String?       @db.Text
+  items         ReceiptItem[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@map("receipts")
+}
+
+model ReceiptItem {
+  id          String   @id @default(uuid())
+  receiptId   String
+  receipt     Receipt  @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  name        String
+  category    String   @default("Lain-lain")
+  subCategory String?  @default("Umum")
+  price       Float    @default(0)
+  quantity    Int      @default(1)
+  createdAt   DateTime @default(now())
+
+  @@map("receipt_items")
+}
+
+model ScanLimit {
+  id         String   @id @default(uuid())
+  ipAddress  String   @unique
+  scanCount  Int      @default(0)
+  lastScanAt DateTime @default(now())
+  resetAt    DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("scan_limits")
+}
+
+model MerchantDictionary {
+  id            String   @id @default(uuid())
+  rawPattern    String   @unique
+  cleanName     String
+  verifiedCount Int      @default(1)
+  updatedAt     DateTime @updatedAt
+
+  @@map("merchant_dictionaries")
+}
+
+model ProductDictionary {
+  id             String   @id @default(uuid())
+  rawName        String   @unique
+  verifiedName   String
+  category       String
+  subCategory    String?  @default("Umum")
+  lastKnownPrice Float    @default(0)
+  verifiedCount  Int      @default(1)
+  updatedAt      DateTime @updatedAt
+
+  @@map("product_dictionaries")
+}
+
+model CustomCategory {
+  id        String   @id @default(uuid())
+  name      String
+  parentId  String?
+  createdAt DateTime @default(now())
+
+  @@map("custom_categories")
+}
