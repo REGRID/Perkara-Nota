@@ -215,7 +215,7 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
     let textOutput = ""
 
     try {
-      textOutput = await callGeminiRestApi(apiKey, "gemini-1.5-flash", contentsParts)
+      textOutput = await callGeminiRestApi(apiKey, "gemini-flash-latest", contentsParts)
     } catch (e1: any) {
       if (e1.status === 429 || e1.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
         return NextResponse.json(
@@ -227,9 +227,9 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
         )
       }
 
-      console.warn("gemini-1.5-flash failed, trying gemini-2.0-flash:", e1.message)
+      console.warn("gemini-flash-latest failed, trying gemini-2.0-flash-lite:", e1.message)
       try {
-        textOutput = await callGeminiRestApi(apiKey, "gemini-2.0-flash", contentsParts)
+        textOutput = await callGeminiRestApi(apiKey, "gemini-2.0-flash-lite", contentsParts)
       } catch (e2: any) {
         if (e2.status === 429 || e2.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
           return NextResponse.json(
@@ -241,9 +241,9 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
           )
         }
 
-        console.warn("gemini-2.0-flash failed, trying gemini-flash-latest:", e2.message)
+        console.warn("gemini-2.0-flash-lite failed, trying gemini-2.0-flash:", e2.message)
         try {
-          textOutput = await callGeminiRestApi(apiKey, "gemini-flash-latest", contentsParts)
+          textOutput = await callGeminiRestApi(apiKey, "gemini-2.0-flash", contentsParts)
         } catch (e3: any) {
           if (e3.status === 429 || e3.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
             return NextResponse.json(

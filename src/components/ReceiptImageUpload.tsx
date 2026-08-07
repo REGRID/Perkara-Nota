@@ -93,6 +93,12 @@ export function ReceiptImageUpload({
     return () => clearInterval(interval)
   }, [isProcessing])
 
+  const triggerFileInput = (inputId: string) => {
+    if (isQuotaReached || isProcessing) return
+    const el = document.getElementById(inputId) as HTMLInputElement
+    if (el) el.click()
+  }
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
@@ -481,6 +487,7 @@ export function ReceiptImageUpload({
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 w-full max-w-md pt-2">
               <label
                 htmlFor={isQuotaReached ? undefined : "gallery-file-input"}
+                onClick={() => triggerFileInput("gallery-file-input")}
                 className={`inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-extrabold text-sm transition-all shadow-md ${
                   isQuotaReached
                     ? "bg-slate-300 text-slate-500 cursor-not-allowed shadow-none"
@@ -493,6 +500,7 @@ export function ReceiptImageUpload({
 
               <label
                 htmlFor={isQuotaReached ? undefined : "camera-file-input"}
+                onClick={() => triggerFileInput("camera-file-input")}
                 className={`inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-extrabold text-sm transition-all shadow-md ${
                   isQuotaReached
                     ? "bg-slate-300 text-slate-500 cursor-not-allowed shadow-none"

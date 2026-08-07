@@ -1,22 +1,33 @@
 {
-  "name": "Nota-Photo Scanner",
-  "short_name": "NotaPhoto",
-  "description": "Scan Struk & Surat Jalan Fisik dengan AI Gemini Cloud",
+  "name": "Nota-Photo AI - Struk & Faktur",
+  "short_name": "Nota Photo",
+  "description": "Aplikasi Digitalisasi Struk, Faktur, & Surat Jalan Fisik dengan AI Gemini Cloud",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "fullscreen", "minimal-ui"],
   "background_color": "#0f172a",
-  "theme_color": "#10b981",
-  "orientation": "portrait",
+  "theme_color": "#0f172a",
+  "orientation": "any",
+  "categories": ["business", "finance", "utilities"],
   "icons": [
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/maskable-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

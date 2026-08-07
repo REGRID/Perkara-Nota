@@ -11,9 +11,9 @@ export interface OCRProgress {
  */
 export function compressImageBase64(
   base64Data: string,
-  maxWidth = 1920,
-  maxHeight = 1920,
-  quality = 0.85
+  maxWidth = 1600,
+  maxHeight = 1600,
+  quality = 0.8
 ): Promise<string> {
   return new Promise((resolve) => {
     if (!base64Data || !base64Data.startsWith("data:image")) {
@@ -21,7 +21,9 @@ export function compressImageBase64(
     }
 
     const img = new Image()
-    img.crossOrigin = "anonymous"
+    if (base64Data.startsWith("http")) {
+      img.crossOrigin = "anonymous"
+    }
     img.onload = () => {
       let width = img.width
       let height = img.height
@@ -50,7 +52,10 @@ export function compressImageBase64(
       const compressedBase64 = canvas.toDataURL("image/jpeg", quality)
       resolve(compressedBase64)
     }
-    img.onerror = () => resolve(base64Data)
+    img.onerror = () => {
+      console.warn("Image load error during compression, resolving raw base64")
+      resolve(base64Data)
+    }
     img.src = base64Data
   })
 }
@@ -63,7 +68,9 @@ export function rotateImageBase64(base64Data: string, degrees: number): Promise<
     if (degrees === 0) return resolve(base64Data)
 
     const img = new Image()
-    img.crossOrigin = "anonymous"
+    if (base64Data.startsWith("http")) {
+      img.crossOrigin = "anonymous"
+    }
     img.onload = () => {
       const canvas = document.createElement("canvas")
       const ctx = canvas.getContext("2d")
@@ -81,7 +88,7 @@ export function rotateImageBase64(base64Data: string, degrees: number): Promise<
       ctx.rotate((degrees * Math.PI) / 180)
       ctx.drawImage(img, -img.width / 2, -img.height / 2)
 
-      resolve(canvas.toDataURL("image/jpeg", 0.9))
+      resolve(canvas.toDataURL("image/jpeg", 0.85))
     }
     img.onerror = () => resolve(base64Data)
     img.src = base64Data

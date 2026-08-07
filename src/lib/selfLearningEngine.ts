@@ -87,14 +87,14 @@ export async function getLearnedKnowledgeContext(): Promise<string> {
 
     if (topMerchants.length > 0) {
       knowledgeText += "Nama Toko / PT yang Pernah Diverifikasi:\n"
-      topMerchants.forEach((m) => {
+      topMerchants.forEach((m: any) => {
         knowledgeText += `- "${m.cleanName}" (Terverifikasi ${m.verifiedCount}x)\n`
       })
     }
 
     if (topProducts.length > 0) {
       knowledgeText += "Daftar Barang, Kategori Utama & Sub-Kategori Terverifikasi:\n"
-      topProducts.forEach((p) => {
+      topProducts.forEach((p: any) => {
         knowledgeText += `- "${p.verifiedName}" -> Kategori Utama: "${p.category}", Sub-Kategori: "${p.subCategory || "Umum"}" (Harga Terakhir: Rp ${p.lastKnownPrice.toLocaleString("id-ID")})\n`
       })
     }

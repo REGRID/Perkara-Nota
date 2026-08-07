@@ -49,7 +49,18 @@ export async function GET(req: NextRequest) {
             : {},
         ],
       },
-      include: {
+      select: {
+        id: true,
+        merchantName: true,
+        date: true,
+        subtotal: true,
+        taxAmount: true,
+        totalAmount: true,
+        paymentMethod: true,
+        paymentStatus: true,
+        note: true,
+        createdAt: true,
+        updatedAt: true,
         items: true,
       },
       orderBy: {
@@ -65,7 +76,7 @@ export async function GET(req: NextRequest) {
     const parentNames: string[] = customCats.map((c: any) => c.name)
 
     // Normalize item categories and strip legacy [Dibayar oleh: ...] from non-personal payment receipts
-    const normalizedReceipts = receipts.map((r) => {
+    const normalizedReceipts = receipts.map((r: any) => {
       const isPersonal =
         r.paymentMethod === "Dana Pribadi Owner" || r.paymentMethod === "Talangan Karyawan"
       const cleanedNote =
@@ -76,7 +87,7 @@ export async function GET(req: NextRequest) {
       return {
         ...r,
         note: cleanedNote,
-        items: r.items.map((item) => {
+        items: r.items.map((item: any) => {
           const itemCat = item.category || "Lain-lain"
           const itemRoot = itemCat.split("/")[0].trim().toLowerCase()
 

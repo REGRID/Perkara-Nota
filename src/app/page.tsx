@@ -6,7 +6,7 @@ import { ReceiptImageUpload, BatchFileItem } from "@/components/ReceiptImageUplo
 import { VerificationSplitScreen } from "@/components/VerificationSplitScreen"
 import { ReceiptHistoryDashboard, ReceiptData } from "@/components/ReceiptHistoryDashboard"
 import { ParsedReceiptResult } from "@/app/api/parse-receipt/route"
-import { Camera, History, ShieldCheck, CheckCircle2 } from "lucide-react"
+import { Camera, History, ShieldCheck, CheckCircle2, Maximize2 } from "lucide-react"
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<"scan" | "history">("scan")

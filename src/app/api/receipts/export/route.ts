@@ -67,10 +67,10 @@ export async function GET(req: NextRequest) {
     // If format === "statement", generate Bank Statement (Rekening Koran) Excel / CSV
     if (format === "statement" || format === "statement-csv") {
       let runningBalance = 0
-      const statementRows = receipts.map((r, idx) => {
+      const statementRows = receipts.map((r: any, idx: number) => {
         runningBalance += r.totalAmount
-        const categorySummary = Array.from(new Set(r.items.map((i) => i.category))).join(", ")
-        const itemsSummary = r.items.slice(0, 3).map((i) => i.name).join(", ") + (r.items.length > 3 ? "..." : "")
+        const categorySummary = Array.from(new Set(r.items.map((i: any) => i.category))).join(", ")
+        const itemsSummary = r.items.slice(0, 3).map((i: any) => i.name).join(", ") + (r.items.length > 3 ? "..." : "")
 
         return {
           "No.": idx + 1,
@@ -122,7 +122,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Sheet 1: Ringkasan Nota (Standard Summary)
-    const summaryData = receipts.map((r, idx) => ({
+    const summaryData = receipts.map((r: any, idx: number) => ({
       "No.": idx + 1,
       "Tanggal Nota": r.date,
       "Nama Toko / Merchant": r.merchantName,
@@ -139,8 +139,8 @@ export async function GET(req: NextRequest) {
     // Sheet 2: Rincian Item Produk
     const itemsData: any[] = []
     let itemIdx = 1
-    receipts.forEach((r) => {
-      r.items.forEach((it) => {
+    receipts.forEach((r: any) => {
+      r.items.forEach((it: any) => {
         itemsData.push({
           "No.": itemIdx++,
           "Tanggal Nota": r.date,
