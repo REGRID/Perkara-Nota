@@ -95,13 +95,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Data gambar atau teks nota diperlukan" }, { status: 400 })
     }
 
-    const apiKey = process.env.GEMINI_API_KEY
+    const apiKey =
+      req.headers.get("x-gemini-api-key") ||
+      (body && typeof body === "object" ? body.apiKey : null) ||
+      process.env.GEMINI_API_KEY
 
     if (!apiKey) {
       return NextResponse.json(
         {
           error: "API_KEY_MISSING",
-          message: "Kunci GEMINI_API_KEY belum dikonfigurasi di lingkungan server (.env.local).",
+          message: "Kunci GEMINI_API_KEY belum dikonfigurasi di lingkungan server (.env.local) atau diisi di modal UI.",
         },
         { status: 500 }
       )
@@ -212,7 +215,7 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
     let textOutput = ""
 
     try {
-      textOutput = await callGeminiRestApi(apiKey, "gemini-3.6-flash", contentsParts)
+      textOutput = await callGeminiRestApi(apiKey, "gemini-1.5-flash", contentsParts)
     } catch (e1: any) {
       if (e1.status === 429 || e1.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
         return NextResponse.json(
@@ -224,9 +227,9 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
         )
       }
 
-      console.warn("gemini-3.6-flash failed, trying gemini-flash-latest:", e1.message)
+      console.warn("gemini-1.5-flash failed, trying gemini-2.0-flash:", e1.message)
       try {
-        textOutput = await callGeminiRestApi(apiKey, "gemini-flash-latest", contentsParts)
+        textOutput = await callGeminiRestApi(apiKey, "gemini-2.0-flash", contentsParts)
       } catch (e2: any) {
         if (e2.status === 429 || e2.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
           return NextResponse.json(
@@ -238,21 +241,48 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
           )
         }
 
-        console.error("Gemini API parsing failed:", e2)
-        return NextResponse.json(
-          {
-            error: "API_PARSE_FAILED",
-            message: `Gagal memproses nota dari server AI: ${e2.message || "Kesalahan API"}`,
-          },
-          { status: 502 }
-        )
+        console.warn("gemini-2.0-flash failed, trying gemini-flash-latest:", e2.message)
+        try {
+          textOutput = await callGeminiRestApi(apiKey, "gemini-flash-latest", contentsParts)
+        } catch (e3: any) {
+          if (e3.status === 429 || e3.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
+            return NextResponse.json(
+              {
+                error: "QUOTA_EXCEEDED",
+                message: "Kuota Google Cloud Gemini API telah habis (Rate limit 429). Silakan coba lagi esok hari.",
+              },
+              { status: 429 }
+            )
+          }
+
+          console.error("Gemini API parsing failed:", e3)
+          return NextResponse.json(
+            {
+              error: "API_PARSE_FAILED",
+              message: `Gagal memproses nota dari server AI: ${e3.message || "Kesalahan API"}`,
+            },
+            { status: 502 }
+          )
+        }
       }
     }
 
     const jsonMatch = textOutput.match(/\{[\s\S]*\}/)
     const cleanedJson = jsonMatch ? jsonMatch[0] : textOutput
 
-    const parsedJson = JSON.parse(cleanedJson) as ParsedReceiptResult
+    let parsedJson: ParsedReceiptResult
+    try {
+      parsedJson = JSON.parse(cleanedJson) as ParsedReceiptResult
+    } catch (parseErr) {
+      console.error("Failed to parse JSON from Gemini output:", textOutput)
+      return NextResponse.json(
+        {
+          error: "API_PARSE_INVALID_JSON",
+          message: "Respon dari server AI tidak berbentuk format JSON yang valid. Silakan coba lagi.",
+        },
+        { status: 500 }
+      )
+    }
 
     if (!parsedJson.merchantName) parsedJson.merchantName = "Nota / Toko"
     if (!parsedJson.date) parsedJson.date = new Date().toISOString().split("T")[0]

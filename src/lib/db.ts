@@ -13,14 +13,7 @@ export const db =
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = db
 
-// Direct mysql2 Connection Pool (useful if querying directly without ORM)
-export const pool = mysql.createPool({
-  host: "localhost",
-  port: 3306,
-  user: "root",
-  password: "",
-  database: "nota_photo",
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-})
+// Direct mysql2 Connection Pool (reads DATABASE_URL if direct raw queries are needed)
+export const pool = mysql.createPool(
+  process.env.DATABASE_URL || "mysql://root:@localhost:3306/nota_photo"
+)

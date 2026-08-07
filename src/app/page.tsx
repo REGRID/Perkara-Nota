@@ -63,13 +63,19 @@ export default function HomePage() {
     setOcrStatus(`Memproses Nota #${index + 1} dari ${queue.length} via Gemini AI...`)
     setOcrPercent(0.3)
 
-    // High-speed parallel processing: Send compressed base64 directly to Gemini 3.6 Flash Server API
+    const userApiKey = typeof window !== "undefined" ? localStorage.getItem("gemini_api_key") || "" : ""
+
+    // High-speed processing: Send compressed base64 directly to Gemini Server API
     const parsePromise = fetchWithRetry("/api/parse-receipt", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(userApiKey ? { "x-gemini-api-key": userApiKey } : {}),
+      },
       body: JSON.stringify({
         rawText: "",
         imageBase64: item.base64,
+        apiKey: userApiKey,
       }),
     })
 

@@ -95,14 +95,23 @@ export async function extractTextFromReceipt(
   imageSource: File | string,
   onProgress?: (info: OCRProgress) => void
 ): Promise<string> {
-  const timeout = new Promise<string>((_, reject) =>
-    setTimeout(() => reject(new Error("OCR Timeout")), 14000)
-  )
+  let activeWorker: any = null
+
+  let timeoutId: any = null
+  const timeout = new Promise<string>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      if (activeWorker) {
+        try {
+          activeWorker.terminate()
+        } catch {}
+      }
+      reject(new Error("OCR Timeout"))
+    }, 14000)
+  })
 
   const ocrTask = async (): Promise<string> => {
-    let worker
     try {
-      worker = await createWorker("ind+eng", 1, {
+      const worker = await createWorker("ind+eng", 1, {
         logger: (m) => {
           if (onProgress && m.status) {
             onProgress({
@@ -112,21 +121,26 @@ export async function extractTextFromReceipt(
           }
         },
       })
+      activeWorker = worker
 
       const {
         data: { text },
       } = await worker.recognize(imageSource)
 
       await worker.terminate()
+      activeWorker = null
       return text ? text.trim() : "Nota Belanja"
     } catch (err) {
       console.warn("Primary Tesseract OCR failed, using fallback:", err)
-      if (worker) {
+      if (activeWorker) {
         try {
-          await worker.terminate()
+          await activeWorker.terminate()
         } catch {}
+        activeWorker = null
       }
       return "Nota Belanja"
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId)
     }
   }
 
@@ -134,6 +148,12 @@ export async function extractTextFromReceipt(
     return await Promise.race([ocrTask(), timeout])
   } catch (err) {
     console.warn("OCR timed out or failed gracefully:", err)
+    if (activeWorker) {
+      try {
+        await activeWorker.terminate()
+      } catch {}
+      activeWorker = null
+    }
     return "Nota Belanja"
   }
 }

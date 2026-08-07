@@ -73,13 +73,6 @@ export async function GET(req: NextRequest) {
           ? r.note.replace(/\[Dibayar oleh: [^\]]+\]\s*/g, "").trim() || null
           : r.note
 
-      if (!isPersonal && r.note && r.note !== cleanedNote) {
-        db.receipt.update({
-          where: { id: r.id },
-          data: { note: cleanedNote },
-        }).catch((err) => console.error("Legacy note cleanup error:", err))
-      }
-
       return {
         ...r,
         note: cleanedNote,
@@ -161,5 +154,29 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("POST Receipt Error:", error)
     return NextResponse.json({ error: error.message || "Gagal menyimpan nota ke database" }, { status: 500 })
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { ids } = await req.json()
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return NextResponse.json({ error: "ID nota yang akan dihapus tidak valid" }, { status: 400 })
+    }
+
+    const deleted = await db.receipt.deleteMany({
+      where: {
+        id: { in: ids },
+      },
+    })
+
+    return NextResponse.json({
+      success: true,
+      message: `Berhasil menghapus ${deleted.count} nota`,
+      count: deleted.count,
+    })
+  } catch (error: any) {
+    console.error("Bulk DELETE Receipts Error:", error)
+    return NextResponse.json({ error: "Gagal menghapus nota secara massal" }, { status: 500 })
   }
 }

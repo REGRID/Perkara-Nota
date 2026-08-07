@@ -91,6 +91,26 @@ export interface HierarchyGroup {
   subCategories: { id: string; name: string }[]
 }
 
+export interface ItemBreakdownEntry {
+  receiptId: string
+  receiptDate: string
+  merchantName: string
+  itemName: string
+  category: string
+  subCategory: string
+  price: number
+  quantity: number
+  total: number
+}
+
+export interface ItemBreakdownModalState {
+  title: string
+  subTitle: string
+  totalSpend: number
+  totalQty: number
+  items: ItemBreakdownEntry[]
+}
+
 const GRAPH_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4", "#64748b"]
 
 interface ReceiptHistoryDashboardProps {
@@ -105,7 +125,10 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
 
   // Toggle Analytics Charts display & Chart View Type
   const [showCharts, setShowCharts] = useState(true)
-  const [chartMode, setChartMode] = useState<"category" | "daily" | "topProducts">("category")
+  const [chartMode, setChartMode] = useState<"category" | "daily" | "topSubCategories">("category")
+
+  // Item Breakdown Drill-Down Modal State
+  const [itemBreakdownModal, setItemBreakdownModal] = useState<ItemBreakdownModalState | null>(null)
 
   // Interactive Lightbox Modal State
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null)
@@ -393,11 +416,18 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
 
     setIsBulkDeleting(true)
     try {
-      await Promise.all(
-        selectedReceiptIds.map((id) => fetch(`/api/receipts/${id}`, { method: "DELETE" }))
-      )
-      setAllReceipts((prev) => prev.filter((r) => !selectedReceiptIds.includes(r.id)))
-      setSelectedReceiptIds([])
+      const res = await fetch("/api/receipts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedReceiptIds }),
+      })
+
+      if (res.ok) {
+        setAllReceipts((prev) => prev.filter((r) => !selectedReceiptIds.includes(r.id)))
+        setSelectedReceiptIds([])
+      } else {
+        alert("Gagal menghapus nota terpilih")
+      }
     } catch (e) {
       alert("Gagal menghapus beberapa nota terpilih")
     } finally {
@@ -687,15 +717,51 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
     }))
   }, [filteredReceipts, isSubCategoryActive, subQ])
 
+  // Calculate Sub-Category Breakdown Data
+  const subCategoryChartData = useMemo(() => {
+    const map: Record<string, { totalSpend: number; count: number; category: string; subCategory: string }> = {}
+
+    filteredReceipts.forEach((r) => {
+      r.items.forEach((item) => {
+        const parent = item.category || "Lain-lain"
+        const sub = item.subCategory || "Umum"
+        const key = `${parent} / ${sub}`
+
+        if (!map[key]) {
+          map[key] = { totalSpend: 0, count: 0, category: parent, subCategory: sub }
+        }
+        map[key].totalSpend += item.price * item.quantity
+        map[key].count += item.quantity
+      })
+    })
+
+    return Object.entries(map)
+      .map(([key, stat], idx) => ({
+        name: key,
+        category: stat.category,
+        subCategory: stat.subCategory,
+        value: stat.totalSpend,
+        count: stat.count,
+        percentage: totalSpend > 0 ? Math.round((stat.totalSpend / totalSpend) * 100) : 0,
+        color: GRAPH_COLORS[idx % GRAPH_COLORS.length],
+      }))
+      .sort((a, b) => b.value - a.value)
+  }, [filteredReceipts, totalSpend])
+
   // Calculate Top 5 Most Expensive Purchased Products
   const topProductsData = useMemo(() => {
-    const prodMap: Record<string, { totalSpend: number; qty: number; category: string }> = {}
+    const prodMap: Record<string, { totalSpend: number; qty: number; category: string; subCategory: string }> = {}
 
     filteredReceipts.forEach((r) => {
       r.items.forEach((item) => {
         const key = item.name.trim()
         if (!prodMap[key]) {
-          prodMap[key] = { totalSpend: 0, qty: 0, category: item.category }
+          prodMap[key] = {
+            totalSpend: 0,
+            qty: 0,
+            category: item.category || "Lain-lain",
+            subCategory: item.subCategory || "Umum",
+          }
         }
         prodMap[key].totalSpend += item.price * item.quantity
         prodMap[key].qty += item.quantity
@@ -708,10 +774,100 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
         totalSpend: stat.totalSpend,
         qty: stat.qty,
         category: stat.category,
+        subCategory: stat.subCategory,
       }))
       .sort((a, b) => b.totalSpend - a.totalSpend)
       .slice(0, 5)
   }, [filteredReceipts])
+
+  // Drill-down breakdown openers
+  const handleOpenProductBreakdown = (productName: string) => {
+    const matchedEntries: ItemBreakdownEntry[] = []
+    let totalSpend = 0
+    let totalQty = 0
+    let catName = ""
+    let subCatName = ""
+
+    filteredReceipts.forEach((r) => {
+      r.items.forEach((item) => {
+        if (item.name.trim().toLowerCase() === productName.trim().toLowerCase()) {
+          const itemTotal = item.price * item.quantity
+          totalSpend += itemTotal
+          totalQty += item.quantity
+          catName = item.category || "Lain-lain"
+          subCatName = item.subCategory || "Umum"
+
+          matchedEntries.push({
+            receiptId: r.id,
+            receiptDate: r.date,
+            merchantName: r.merchantName,
+            itemName: item.name,
+            category: catName,
+            subCategory: subCatName,
+            price: item.price,
+            quantity: item.quantity,
+            total: itemTotal,
+          })
+        }
+      })
+    })
+
+    matchedEntries.sort((a, b) => b.receiptDate.localeCompare(a.receiptDate))
+
+    setItemBreakdownModal({
+      title: productName,
+      subTitle: `Kategori Utama: ${catName} • Sub-Kategori: ${subCatName}`,
+      totalSpend,
+      totalQty,
+      items: matchedEntries,
+    })
+  }
+
+  const handleOpenSubCategoryBreakdown = (subCategoryKey: string) => {
+    const matchedEntries: ItemBreakdownEntry[] = []
+    let totalSpend = 0
+    let totalQty = 0
+
+    filteredReceipts.forEach((r) => {
+      r.items.forEach((item) => {
+        const parent = item.category || "Lain-lain"
+        const sub = item.subCategory || "Umum"
+        const fullKey = `${parent} / ${sub}`
+
+        if (
+          fullKey.toLowerCase() === subCategoryKey.toLowerCase() ||
+          sub.toLowerCase() === subCategoryKey.toLowerCase() ||
+          parent.toLowerCase() === subCategoryKey.toLowerCase()
+        ) {
+          const itemTotal = item.price * item.quantity
+          totalSpend += itemTotal
+          totalQty += item.quantity
+
+          matchedEntries.push({
+            receiptId: r.id,
+            receiptDate: r.date,
+            merchantName: r.merchantName,
+            itemName: item.name,
+            category: parent,
+            subCategory: sub,
+            price: item.price,
+            quantity: item.quantity,
+            total: itemTotal,
+          })
+        }
+      })
+    })
+
+    matchedEntries.sort((a, b) => b.receiptDate.localeCompare(a.receiptDate))
+
+    setItemBreakdownModal({
+      title: `Perincian Rincian Item: ${subCategoryKey}`,
+      subTitle: `Total ${matchedEntries.length} transaksi barang/nota penyumbang nominal`,
+      totalSpend,
+      totalQty,
+      items: matchedEntries,
+    })
+  }
 
   // Calculate Rekening Koran Statement Rows (Matching Bank Mandiri Reference Layout)
   const statementTableRows = useMemo(() => {
@@ -996,7 +1152,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
               </p>
             </div>
 
-            <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs font-bold w-fit self-start sm:self-auto">
+            <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs font-bold w-fit self-start sm:self-auto flex-wrap">
               <button
                 type="button"
                 onClick={() => setChartMode("category")}
@@ -1017,12 +1173,12 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
               </button>
               <button
                 type="button"
-                onClick={() => setChartMode("topProducts")}
+                onClick={() => setChartMode("topSubCategories")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all ${
-                  chartMode === "topProducts" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                  chartMode === "topSubCategories" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                <Zap className="w-3.5 h-3.5 text-amber-400" /> Top 5 Produk
+                <Zap className="w-3.5 h-3.5 text-amber-400" /> Top 5 Sub-Kategori
               </button>
             </div>
           </div>
@@ -1032,7 +1188,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
                 <div className="lg:col-span-7 space-y-2">
                   <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                    Pengeluaran Bersih Per Kategori (Rp)
+                    Pengeluaran Bersih Per Kategori Utama (Rp)
                   </span>
                   <div className="h-64 w-full pt-2">
                     <ResponsiveContainer width="100%" height="100%">
@@ -1104,22 +1260,24 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
 
               <div className="pt-3 border-t border-slate-100 space-y-2">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                  <Info className="w-3.5 h-3.5 text-blue-500" /> Ringkasan Persentase Kategori:
+                  <Info className="w-3.5 h-3.5 text-blue-500" /> Ringkasan Persentase Kategori (Klik untuk rincian item):
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
                   {categoryChartData.map((item, idx) => (
                     <div
                       key={idx}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200/80 text-[11px] shadow-2xs"
+                      onClick={() => handleOpenSubCategoryBreakdown(item.name)}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200/80 hover:border-emerald-300 text-[11px] shadow-2xs cursor-pointer transition-all active:scale-95 group"
                     >
                       <span
                         className="w-3 h-3 rounded-full shrink-0"
                         style={{ backgroundColor: item.color }}
                       />
-                      <span className="font-extrabold text-slate-800">{item.name}:</span>
+                      <span className="font-extrabold text-slate-800 group-hover:text-emerald-800">{item.name}:</span>
                       <span className="font-mono text-slate-700 font-bold">
                         Rp {item.value.toLocaleString("id-ID")} ({item.percentage}%)
                       </span>
+                      <ChevronRight className="w-3 h-3 text-slate-400 group-hover:text-emerald-600" />
                     </div>
                   ))}
                 </div>
@@ -1176,36 +1334,49 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
             </div>
           )}
 
-          {chartMode === "topProducts" && (
+          {chartMode === "topSubCategories" && (
             <div className="space-y-4 animate-in fade-in duration-200">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                  Top 5 Produk Dengan Pengeluaran Nominal Tertinggi
+                  TOP 5 SUB-KATEGORI DENGAN PENGELUARAN NOMINAL TERTINGGI (KLIK UNTUK RINCIAN ITEM)
                 </span>
                 <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
-                  Produk Terboros
+                  Sub-Kategori Terboros
                 </span>
               </div>
 
-              {topProductsData.length > 0 ? (
+              {subCategoryChartData.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-3 pt-1">
-                  {topProductsData.map((prod, idx) => (
-                    <div key={idx} className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/90 space-y-1.5">
-                      <span className="text-[10px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
-                        Rank #{idx + 1}
-                      </span>
-                      <h4 className="font-extrabold text-slate-900 text-xs truncate pt-1">{prod.name}</h4>
+                  {subCategoryChartData.slice(0, 5).map((prod, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => handleOpenSubCategoryBreakdown(prod.name)}
+                      className="bg-slate-50 hover:bg-emerald-50/60 p-3.5 rounded-2xl border border-slate-200/90 hover:border-emerald-500/80 space-y-1.5 cursor-pointer transition-all shadow-2xs hover:shadow-md active:scale-95 group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
+                          Rank #{idx + 1}
+                        </span>
+                        <Eye className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+                      </div>
+                      <h4 className="font-extrabold text-slate-900 text-xs truncate pt-1 group-hover:text-emerald-800 transition-colors">
+                        {prod.subCategory}
+                      </h4>
                       <p className="text-sm font-black font-mono text-emerald-700">
-                        Rp {prod.totalSpend.toLocaleString("id-ID")}
+                        Rp {prod.value.toLocaleString("id-ID")}
                       </p>
-                      <p className="text-[10px] text-slate-500 font-medium">
-                        Total Beli: {prod.qty} item • [{prod.category}]
+                      <p className="text-[10px] text-slate-500 font-medium truncate">
+                        {prod.count} item • [{prod.category} / {prod.subCategory}]
                       </p>
+                      <div className="pt-1 text-[10px] font-bold text-emerald-600 flex items-center gap-1 opacity-80 group-hover:opacity-100">
+                        <span>Rincian item penopang</span>
+                        <ChevronRight className="w-3 h-3" />
+                      </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-slate-400 italic text-center py-8">Belum ada data produk terboros di kriteria ini.</p>
+                <p className="text-xs text-slate-400 italic text-center py-8">Belum ada data sub-kategori terboros di kriteria ini.</p>
               )}
             </div>
           )}
@@ -2434,6 +2605,149 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
                 type="button"
                 onClick={() => setSelectedReceipt(null)}
                 className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ITEM BREAKDOWN DRILL-DOWN MODAL */}
+      {itemBreakdownModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold">
+                  <ShoppingBag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-white text-base sm:text-lg flex items-center gap-2">
+                    {itemBreakdownModal.title}
+                  </h3>
+                  <p className="text-xs text-slate-300 font-medium">
+                    {itemBreakdownModal.subTitle}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setItemBreakdownModal(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Summary Stat Badges */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">TOTAL NOMINAL</span>
+                <span className="text-base font-black font-mono text-emerald-700">
+                  Rp {itemBreakdownModal.totalSpend.toLocaleString("id-ID")}
+                </span>
+              </div>
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">TOTAL VOLUME</span>
+                <span className="text-base font-black font-mono text-slate-800">
+                  {itemBreakdownModal.totalQty} item
+                </span>
+              </div>
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">FREKUENSI NOTA</span>
+                <span className="text-base font-black font-mono text-blue-700">
+                  {itemBreakdownModal.items.length} kali transaksi
+                </span>
+              </div>
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">RATA-RATA HARGA SATUAN</span>
+                <span className="text-base font-black font-mono text-purple-700">
+                  Rp {Math.round(itemBreakdownModal.totalSpend / (itemBreakdownModal.totalQty || 1)).toLocaleString("id-ID")}
+                </span>
+              </div>
+            </div>
+
+            {/* Item Breakdown Table */}
+            <div className="p-4 overflow-y-auto flex-1 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <ListFilter className="w-4 h-4 text-emerald-600" /> Rincian Item-Item Penyumbang ({itemBreakdownModal.items.length} rincian)
+                </span>
+                <span className="text-[11px] text-slate-500 font-medium">Klik &quot;Buka Nota&quot; untuk melihat struk fisik</span>
+              </div>
+
+              <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs bg-white">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 text-slate-700 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="p-3">Tanggal</th>
+                        <th className="p-3">Toko / Supplier</th>
+                        <th className="p-3">Nama Barang / Produk</th>
+                        <th className="p-3">Sub-Kategori</th>
+                        <th className="p-3 text-center">Qty</th>
+                        <th className="p-3 text-right">Harga Satuan</th>
+                        <th className="p-3 text-right">Total Subtotal</th>
+                        <th className="p-3 text-center">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                      {itemBreakdownModal.items.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="p-3 font-mono font-bold text-slate-600 whitespace-nowrap">
+                            {row.receiptDate}
+                          </td>
+                          <td className="p-3 font-bold text-slate-900 whitespace-nowrap">
+                            {row.merchantName}
+                          </td>
+                          <td className="p-3 font-extrabold text-slate-900">
+                            {row.itemName}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-bold border border-slate-200">
+                              {row.category} / {row.subCategory}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center font-bold font-mono">
+                            {row.quantity}
+                          </td>
+                          <td className="p-3 text-right font-mono font-semibold text-slate-600 whitespace-nowrap">
+                            Rp {row.price.toLocaleString("id-ID")}
+                          </td>
+                          <td className="p-3 text-right font-mono font-black text-emerald-700 whitespace-nowrap">
+                            Rp {row.total.toLocaleString("id-ID")}
+                          </td>
+                          <td className="p-3 text-center whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const matchedReceipt = allReceipts.find((r) => r.id === row.receiptId)
+                                if (matchedReceipt) {
+                                  setSelectedReceipt(matchedReceipt)
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] transition-colors shadow-2xs"
+                            >
+                              <Eye className="w-3 h-3 text-emerald-400" /> Buka Nota
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setItemBreakdownModal(null)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors"
               >
                 Tutup
               </button>

@@ -25,30 +25,40 @@ export async function recordVerifiedReceiptLearning(
       })
     }
 
+    // Deduplicate items by rawName (case-insensitive) to prevent duplicate DB locks
+    const uniqueItemsMap = new Map<string, { name: string; category: string; subCategory?: string; price: number }>()
     for (const item of items) {
       const cleanItemName = item.name ? item.name.trim() : ""
       if (cleanItemName && cleanItemName.length >= 2) {
         const rawKey = cleanItemName.toLowerCase()
-        await db.productDictionary.upsert({
-          where: { rawName: rawKey },
-          update: {
-            verifiedName: cleanItemName,
-            category: item.category || "Lain-lain",
-            subCategory: item.subCategory || "Umum",
-            lastKnownPrice: Number(item.price) || 0,
-            verifiedCount: { increment: 1 },
-          },
-          create: {
-            rawName: rawKey,
-            verifiedName: cleanItemName,
-            category: item.category || "Lain-lain",
-            subCategory: item.subCategory || "Umum",
-            lastKnownPrice: Number(item.price) || 0,
-            verifiedCount: 1,
-          },
-        })
+        if (!uniqueItemsMap.has(rawKey)) {
+          uniqueItemsMap.set(rawKey, { ...item, name: cleanItemName })
+        }
       }
     }
+
+    const itemUpsertPromises = Array.from(uniqueItemsMap.entries()).map(([rawKey, item]) =>
+      db.productDictionary.upsert({
+        where: { rawName: rawKey },
+        update: {
+          verifiedName: item.name,
+          category: item.category || "Lain-lain",
+          subCategory: item.subCategory || "Umum",
+          lastKnownPrice: Number(item.price) || 0,
+          verifiedCount: { increment: 1 },
+        },
+        create: {
+          rawName: rawKey,
+          verifiedName: item.name,
+          category: item.category || "Lain-lain",
+          subCategory: item.subCategory || "Umum",
+          lastKnownPrice: Number(item.price) || 0,
+          verifiedCount: 1,
+        },
+      })
+    )
+
+    await Promise.all(itemUpsertPromises)
   } catch (error) {
     console.warn("Self-learning memory recording warning:", error)
   }

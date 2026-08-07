@@ -87,12 +87,21 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
  */
 export async function incrementRateLimit(ipAddress: string): Promise<number> {
   const cleanIp = normalizeIp(ipAddress)
+  const now = new Date()
+  const tomorrow = new Date(now.getTime() + 86400000)
+
   try {
-    const updated = await db.scanLimit.update({
+    const updated = await db.scanLimit.upsert({
       where: { ipAddress: cleanIp },
-      data: {
+      update: {
         scanCount: { increment: 1 },
-        lastScanAt: new Date(),
+        lastScanAt: now,
+      },
+      create: {
+        ipAddress: cleanIp,
+        scanCount: 1,
+        lastScanAt: now,
+        resetAt: tomorrow,
       },
     })
     return Math.max(DAILY_SCAN_LIMIT - updated.scanCount, 0)
