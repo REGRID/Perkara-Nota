@@ -2764,6 +2764,115 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
           onClose={() => setLightboxImageUrl(null)}
         />
       )}
+
+      {/* HIDDEN PRINT-ONLY REPORT CONTAINER (Matches Receipt Accounting Summary Report layout 100%) */}
+      <div id="printable-report-section" className="hidden print:block bg-white text-slate-900 font-sans">
+        {/* Header Block */}
+        <div className="flex items-start justify-between border-b border-slate-300 pb-4 mb-4">
+          <div>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-tight">
+              Laporan Rekapitulasi Pembukuan Nota
+            </h1>
+            <p className="text-xs italic font-semibold text-slate-500 mt-0.5">
+              (Receipt Accounting Summary Report)
+            </p>
+
+            <div className="mt-3 space-y-1 text-xs font-bold text-slate-700">
+              <div className="flex gap-2">
+                <span className="w-28 text-slate-500 font-normal">Periode</span>
+                <span className="font-mono">: {statementDateRange.from} s/d {statementDateRange.to}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="w-28 text-slate-500 font-normal">No. Registrasi</span>
+                <span className="font-mono">: 140008801996 - NOTA PHOTO PEMBUKUAN</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="w-28 text-slate-500 font-normal">Kategori Utama</span>
+                <span>: {selectedCategory || "Semua"}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="w-28 text-slate-500 font-normal">Mata Uang</span>
+                <span className="font-mono">: IDR</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-blue-900 text-white flex items-center justify-center font-black text-xs">
+              NP
+            </div>
+            <span className="font-black text-blue-900 text-base tracking-tight">
+              nota-photo
+            </span>
+          </div>
+        </div>
+
+        {/* Data Table */}
+        <table className="w-full text-left border-collapse border border-slate-300 text-xs">
+          <thead>
+            <tr className="bg-slate-50 text-slate-900 font-extrabold uppercase tracking-wider border-b border-slate-300 text-[10px]">
+              <th className="p-2.5 border-r border-slate-300 text-center w-[12%]">Tanggal</th>
+              <th className="p-2.5 border-r border-slate-300 w-[14%]">No. Ref</th>
+              <th className="p-2.5 border-r border-slate-300 w-[16%]">Toko</th>
+              <th className="p-2.5 border-r border-slate-300 w-[38%]">Rincian Barang & Kategori</th>
+              <th className="p-2.5 border-r border-slate-300 text-right w-[10%]">Pengeluaran</th>
+              <th className="p-2.5 text-right w-[10%]">Total</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-300 font-medium text-slate-900">
+            {statementTableRows.map((row) => (
+              <tr key={row.id} className="align-top">
+                <td className="p-2.5 border-r border-slate-300 text-center font-mono font-bold whitespace-nowrap">
+                  {row.date}
+                </td>
+                <td className="p-2.5 border-r border-slate-300 font-mono font-semibold text-slate-700 whitespace-nowrap">
+                  {row.refNo}
+                </td>
+                <td className="p-2.5 border-r border-slate-300 font-black text-slate-900">
+                  {row.merchantName}
+                </td>
+                <td className="p-2.5 border-r border-slate-300 space-y-1.5">
+                  <div className="inline-block px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-black border border-emerald-300">
+                    [{row.categories}]
+                  </div>
+                  <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-slate-800 font-medium">
+                    {row.rawItems.map((it: any, idx2: number) => (
+                      <li key={idx2}>
+                        <span className="font-semibold">{it.name}</span>{" "}
+                        <span className="font-black text-slate-900">x{it.quantity}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </td>
+                <td className="p-2.5 border-r border-slate-300 text-right font-mono font-black text-emerald-700 whitespace-nowrap">
+                  Rp {row.debit.toLocaleString("id-ID")}
+                </td>
+                <td className="p-2.5 text-right font-mono font-black text-slate-900 whitespace-nowrap">
+                  Rp {row.balance.toLocaleString("id-ID")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* Footer Accumulation Banner */}
+        <div className="mt-4 p-4 rounded-2xl bg-[#0B132B] text-white flex items-center justify-between shadow-xs">
+          <div>
+            <h3 className="font-black text-white text-xs tracking-wider uppercase">
+              TOTAL AKUMULASI PENGELUARAN
+            </h3>
+            <p className="text-[10px] italic text-slate-300">
+              (Accumulated Outflow Statement Total)
+            </p>
+          </div>
+
+          <div className="text-right">
+            <span className="text-2xl font-black font-mono text-emerald-400">
+              Rp {totalSpend.toLocaleString("id-ID")}
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
