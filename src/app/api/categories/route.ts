@@ -33,14 +33,65 @@ export async function POST(req: NextRequest) {
     const { name, parentId } = await req.json()
     const cleanName = name ? name.trim() : ""
 
-    if (!cleanName || cleanName.length < 2) {
-      return NextResponse.json({ error: "Nama kategori minimal 2 karakter" }, { status: 400 })
+    if (!cleanName || cleanName.length < 1) {
+      return NextResponse.json({ error: "Nama kategori tidak boleh kosong" }, { status: 400 })
+    }
+
+    // Ensure database has default categories seeded if empty
+    await getOrSeedCategories()
+
+    let resolvedParentId: string | null = null
+
+    if (parentId && typeof parentId === "string" && parentId.trim()) {
+      const targetParentStr = parentId.trim()
+
+      // 1. Try finding parent by database ID
+      const parentById = await (db as any).customCategory.findFirst({
+        where: { id: targetParentStr },
+      })
+
+      if (parentById) {
+        resolvedParentId = parentById.id
+      } else {
+        // 2. Try finding parent by Name
+        const parentByName = await (db as any).customCategory.findFirst({
+          where: {
+            name: targetParentStr,
+            parentId: null,
+          },
+        })
+
+        if (parentByName) {
+          resolvedParentId = parentByName.id
+        } else {
+          // 3. Create parent category if not found
+          const createdParent = await (db as any).customCategory.create({
+            data: {
+              name: targetParentStr,
+              parentId: null,
+            },
+          })
+          resolvedParentId = createdParent.id
+        }
+      }
+    }
+
+    // Check if duplicate exists
+    const existing = await (db as any).customCategory.findFirst({
+      where: {
+        name: cleanName,
+        parentId: resolvedParentId,
+      },
+    })
+
+    if (existing) {
+      return NextResponse.json(existing, { status: 200 })
     }
 
     const created = await (db as any).customCategory.create({
       data: {
         name: cleanName,
-        parentId: parentId || null,
+        parentId: resolvedParentId,
       },
     })
 

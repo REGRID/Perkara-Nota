@@ -75,7 +75,7 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
     console.error("Rate limiter DB error:", error)
     return {
       allowed: true,
-      remaining: 1,
+      remaining: DAILY_SCAN_LIMIT,
       current: 0,
       resetAt: new Date(now.getTime() + 86400000),
     }
