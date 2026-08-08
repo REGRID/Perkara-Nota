@@ -53,6 +53,7 @@ export async function GET(req: NextRequest) {
         id: true,
         merchantName: true,
         date: true,
+        imageUrl: true,
         subtotal: true,
         taxAmount: true,
         totalAmount: true,
