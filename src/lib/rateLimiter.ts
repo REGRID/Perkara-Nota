@@ -1,6 +1,6 @@
 import { db } from "@/lib/db"
 
-export const DAILY_SCAN_LIMIT = 20
+export const DAILY_SCAN_LIMIT = 500
 
 export interface RateLimitResult {
   allowed: boolean

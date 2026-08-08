@@ -215,34 +215,16 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
       if (e1.message?.includes("GOOGLE_API_KEY_INVALID")) {
         return NextResponse.json({ error: "INVALID_API_KEY", message: e1.message }, { status: 400 })
       }
-      if (e1.status === 429 || e1.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
-        return NextResponse.json(
-          {
-            error: "QUOTA_EXCEEDED",
-            message: "Kuota harian Google Cloud Gemini API telah habis (Rate limit 429). Silakan coba lagi esok hari.",
-          },
-          { status: 429 }
-        )
-      }
 
-      console.warn("gemini-2.0-flash failed, trying gemini-1.5-flash:", e1.message)
+      console.warn("gemini-2.0-flash failed/rate limited, trying gemini-1.5-flash:", e1.message)
       try {
         textOutput = await callGeminiRestApi(apiKey, "gemini-1.5-flash", contentsParts)
       } catch (e2: any) {
         if (e2.message?.includes("GOOGLE_API_KEY_INVALID")) {
           return NextResponse.json({ error: "INVALID_API_KEY", message: e2.message }, { status: 400 })
         }
-        if (e2.status === 429 || e2.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
-          return NextResponse.json(
-            {
-              error: "QUOTA_EXCEEDED",
-              message: "Kuota Google Cloud Gemini API telah habis (Rate limit 429). Silakan coba lagi esok hari.",
-            },
-            { status: 429 }
-          )
-        }
 
-        console.warn("gemini-1.5-flash failed, trying gemini-1.5-pro:", e2.message)
+        console.warn("gemini-1.5-flash failed/rate limited, trying gemini-1.5-pro:", e2.message)
         try {
           textOutput = await callGeminiRestApi(apiKey, "gemini-1.5-pro", contentsParts)
         } catch (e3: any) {
@@ -253,7 +235,7 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
             return NextResponse.json(
               {
                 error: "QUOTA_EXCEEDED",
-                message: "Kuota Google Cloud Gemini API telah habis (Rate limit 429). Silakan coba lagi esok hari.",
+                message: "Batas frekuensi Google Gemini API (Rate limit 429) tercapai. Silakan coba beberapa detik lagi.",
               },
               { status: 429 }
             )
