@@ -1,14 +1,19 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { extractTextFromReceipt } from "@/lib/ocr"
 import { ReceiptImageUpload, BatchFileItem } from "@/components/ReceiptImageUpload"
 import { VerificationSplitScreen } from "@/components/VerificationSplitScreen"
 import { ReceiptHistoryDashboard, ReceiptData } from "@/components/ReceiptHistoryDashboard"
+import { AdminLoginScreen } from "@/components/AdminLoginScreen"
 import { ParsedReceiptResult } from "@/app/api/parse-receipt/route"
-import { Camera, History, ShieldCheck, CheckCircle2, Maximize2 } from "lucide-react"
+import { Camera, History, ShieldCheck, CheckCircle2, Maximize2, LogOut, UserCheck, Loader2 } from "lucide-react"
 
 export default function HomePage() {
+  // Admin Auth Gate State
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+  const [adminUser, setAdminUser] = useState<string>("admin")
+
   const [activeTab, setActiveTab] = useState<"scan" | "history">("scan")
 
   // Scanning State
@@ -33,6 +38,46 @@ export default function HomePage() {
   const [existingPaymentMethod, setExistingPaymentMethod] = useState<string>("Cash")
   const [existingPaymentStatus, setExistingPaymentStatus] = useState<string>("Lunas")
   const [existingNote, setExistingNote] = useState<string>("")
+
+  // Initial Auth Check on Mount
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const res = await fetch("/api/auth/session")
+        if (res.ok) {
+          const data = await res.json()
+          if (data.authenticated) {
+            setIsAuthenticated(true)
+            if (data.user?.username) setAdminUser(data.user.username)
+            return
+          }
+        }
+
+        const localToken = localStorage.getItem("nota_admin_token")
+        const localUser = localStorage.getItem("nota_admin_user")
+        if (localToken) {
+          setIsAuthenticated(true)
+          if (localUser) setAdminUser(localUser)
+          return
+        }
+
+        setIsAuthenticated(false)
+      } catch {
+        setIsAuthenticated(false)
+      }
+    }
+
+    checkSession()
+  }, [])
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" })
+    } catch {}
+    localStorage.removeItem("nota_admin_token")
+    localStorage.removeItem("nota_admin_user")
+    setIsAuthenticated(false)
+  }
 
   // Fetch with retry helper for resilient network calls
   const fetchWithRetry = async (url: string, options: RequestInit, retries = 2, delay = 1000): Promise<Response> => {
@@ -197,6 +242,27 @@ export default function HomePage() {
     setEditingReceiptId(null)
   }
 
+  // Render Auth Gate Guard
+  if (isAuthenticated === null) {
+    return (
+      <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col items-center justify-center space-y-3 font-sans">
+        <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
+        <p className="text-xs font-semibold text-slate-500">Memverifikasi Sesi Admin...</p>
+      </div>
+    )
+  }
+
+  if (isAuthenticated === false) {
+    return (
+      <AdminLoginScreen
+        onLoginSuccess={(_token, user) => {
+          setAdminUser(user)
+          setIsAuthenticated(true)
+        }}
+      />
+    )
+  }
+
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans pb-16 sm:pb-0">
       {/* Toast Notification */}
@@ -227,36 +293,51 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Desktop Tab Selector */}
-          <div className="hidden sm:flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
-            <button
-              onClick={() => {
-                setImagePreviewUrl(null)
-                setActiveTab("scan")
-              }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "scan" && !imagePreviewUrl
-                  ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-slate-300 hover:text-white"
-              }`}
-            >
-              <Camera className="w-4 h-4" />
-              Scan Nota Baru
-            </button>
+          <div className="flex items-center gap-2">
+            {/* Desktop Tab Selector */}
+            <div className="hidden sm:flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
+              <button
+                type="button"
+                onClick={() => {
+                  setImagePreviewUrl(null)
+                  setActiveTab("scan")
+                }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  activeTab === "scan" && !imagePreviewUrl
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-slate-300 hover:text-white"
+                }`}
+              >
+                <Camera className="w-4 h-4" />
+                Scan Nota Baru
+              </button>
 
+              <button
+                type="button"
+                onClick={() => {
+                  setImagePreviewUrl(null)
+                  setActiveTab("history")
+                }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  activeTab === "history" && !imagePreviewUrl
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-slate-300 hover:text-white"
+                }`}
+              >
+                <History className="w-4 h-4" />
+                Riwayat & Laporan
+              </button>
+            </div>
+
+            {/* Logout Admin Button */}
             <button
-              onClick={() => {
-                setImagePreviewUrl(null)
-                setActiveTab("history")
-              }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "history" && !imagePreviewUrl
-                  ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-slate-300 hover:text-white"
-              }`}
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/30 text-red-400 font-bold text-xs border border-red-500/20 transition-all active:scale-95 cursor-pointer ml-1"
+              title="Keluar Admin"
             >
-              <History className="w-4 h-4" />
-              Riwayat & Laporan
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">Keluar</span>
             </button>
           </div>
         </div>
@@ -312,34 +393,38 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* STICKY BOTTOM NAVIGATION FOR MOBILE DEVICES (< sm) */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 sm:hidden bg-slate-900 border-t border-slate-800 p-2 flex items-center justify-around shadow-2xl">
-        <button
-          onClick={() => {
-            setImagePreviewUrl(null)
-            setActiveTab("scan")
-          }}
-          className={`flex flex-col items-center gap-1 py-1 px-4 rounded-xl text-xs font-bold transition-all ${
-            activeTab === "scan" && !imagePreviewUrl ? "text-emerald-400 bg-slate-800" : "text-slate-400"
-          }`}
-        >
-          <Camera className="w-5 h-5" />
-          Scan Nota
-        </button>
+      {/* STICKY BOTTOM NAVIGATION FOR MOBILE DEVICES (< sm) - Hidden during verification split screen */}
+      {!imagePreviewUrl && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 sm:hidden bg-slate-900 border-t border-slate-800 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] flex items-center justify-around shadow-2xl">
+          <button
+            type="button"
+            onClick={() => {
+              setImagePreviewUrl(null)
+              setActiveTab("scan")
+            }}
+            className={`flex flex-col items-center gap-1 py-1 px-4 rounded-xl text-xs font-bold transition-all ${
+              activeTab === "scan" && !imagePreviewUrl ? "text-emerald-400 bg-slate-800" : "text-slate-400"
+            }`}
+          >
+            <Camera className="w-5 h-5" />
+            Scan Nota
+          </button>
 
-        <button
-          onClick={() => {
-            setImagePreviewUrl(null)
-            setActiveTab("history")
-          }}
-          className={`flex flex-col items-center gap-1 py-1 px-4 rounded-xl text-xs font-bold transition-all ${
-            activeTab === "history" && !imagePreviewUrl ? "text-emerald-400 bg-slate-800" : "text-slate-400"
-          }`}
-        >
-          <History className="w-5 h-5" />
-          Riwayat
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => {
+              setImagePreviewUrl(null)
+              setActiveTab("history")
+            }}
+            className={`flex flex-col items-center gap-1 py-1 px-4 rounded-xl text-xs font-bold transition-all ${
+              activeTab === "history" && !imagePreviewUrl ? "text-emerald-400 bg-slate-800" : "text-slate-400"
+            }`}
+          >
+            <History className="w-5 h-5" />
+            Riwayat
+          </button>
+        </div>
+      )}
     </main>
   )
 }

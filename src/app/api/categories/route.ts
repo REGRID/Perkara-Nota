@@ -1,26 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { getOrSeedCategories } from "@/lib/categories"
 
 export async function GET() {
   try {
+    const hierarchy = await getOrSeedCategories()
+    const allCategoryNames = hierarchy.map((h) => h.name)
+
     const customCats = await (db as any).customCategory.findMany({
       orderBy: { createdAt: "asc" },
     })
-
-    // Separate parent categories (parentId == null) and sub-categories (parentId != null)
-    const parents = customCats.filter((c: any) => !c.parentId)
-    const subs = customCats.filter((c: any) => c.parentId)
-
-    // Build hierarchy map strictly from database records
-    const hierarchy = parents.map((parent: any) => ({
-      id: parent.id,
-      name: parent.name,
-      subCategories: subs
-        .filter((sub: any) => sub.parentId === parent.id)
-        .map((sub: any) => ({ id: sub.id, name: sub.name })),
-    }))
-
-    const allCategoryNames = parents.map((p: any) => p.name)
 
     return NextResponse.json({
       allCategories: allCategoryNames,

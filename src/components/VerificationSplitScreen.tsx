@@ -96,6 +96,7 @@ export function VerificationSplitScreen({
   const [newCatType, setNewCatType] = useState<"parent" | "sub">("parent")
   const [newCategoryName, setNewCategoryName] = useState("")
   const [selectedParentForSub, setSelectedParentForSub] = useState("")
+  const [targetItemIndexForCategory, setTargetItemIndexForCategory] = useState<number | null>(null)
   const [showRawOcr, setShowRawOcr] = useState(false)
 
   // Fetch categories hierarchy on mount
@@ -120,10 +121,33 @@ export function VerificationSplitScreen({
     fetchCategoryHierarchy()
   }, [])
 
+  const openAddCategoryModal = (type: "parent" | "sub", parentName?: string, itemIndex?: number | null) => {
+    setNewCatType(type)
+    setTargetItemIndexForCategory(itemIndex !== undefined && itemIndex !== null ? itemIndex : null)
+
+    if (type === "sub") {
+      if (parentName) {
+        const parentObj = categoryHierarchy.find(
+          (h) => h.name.toLowerCase().trim() === parentName.toLowerCase().trim()
+        )
+        if (parentObj) {
+          setSelectedParentForSub(parentObj.id)
+        } else if (categoryHierarchy.length > 0) {
+          setSelectedParentForSub(categoryHierarchy[0].id)
+        }
+      } else if (categoryHierarchy.length > 0) {
+        setSelectedParentForSub(categoryHierarchy[0].id)
+      }
+    }
+
+    setShowAddCategoryModal(true)
+  }
+
   const handleCreateCustomCategory = async () => {
-    if (!newCategoryName.trim()) return
+    const cleanName = newCategoryName.trim()
+    if (!cleanName) return
     try {
-      const payload: any = { name: newCategoryName.trim() }
+      const payload: any = { name: cleanName }
       if (newCatType === "sub" && selectedParentForSub) {
         payload.parentId = selectedParentForSub
       }
@@ -138,6 +162,28 @@ export function VerificationSplitScreen({
         setNewCategoryName("")
         setShowAddCategoryModal(false)
         await fetchCategoryHierarchy()
+
+        // Auto-assign created category to target item if triggered from item row
+        if (targetItemIndexForCategory !== null && targetItemIndexForCategory < items.length) {
+          const updatedItems = [...items]
+          if (newCatType === "parent") {
+            updatedItems[targetItemIndexForCategory] = {
+              ...updatedItems[targetItemIndexForCategory],
+              category: cleanName,
+              subCategory: "Umum",
+            }
+          } else {
+            updatedItems[targetItemIndexForCategory] = {
+              ...updatedItems[targetItemIndexForCategory],
+              subCategory: cleanName,
+            }
+          }
+          setItems(updatedItems)
+        }
+        setTargetItemIndexForCategory(null)
+      } else {
+        const errData = await res.json()
+        alert(errData.error || "Gagal menambah kategori baru")
       }
     } catch (e) {
       alert("Gagal menambah kategori baru")
@@ -692,11 +738,21 @@ export function VerificationSplitScreen({
 
                       {/* Row 2: Dynamic Category & Sub-Category Selection */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                        {/* Parent Category Field */}
                         <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-slate-700">Kategori Utama Produk</label>
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-slate-700">Kategori Utama Produk</label>
+                            <button
+                              type="button"
+                              onClick={() => openAddCategoryModal("parent", undefined, idx)}
+                              className="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-800 flex items-center gap-0.5"
+                            >
+                              <Plus className="w-3 h-3 text-emerald-600" /> + Tambah
+                            </button>
+                          </div>
                           <div className="relative">
                             <select
-                              value={item.category}
+                              value={item.category || (categoryHierarchy[0]?.name || "Lain-lain")}
                               onChange={(e) => {
                                 const newParent = e.target.value
                                 const matchingParent = categoryHierarchy.find((h) => h.name === newParent)
@@ -706,29 +762,60 @@ export function VerificationSplitScreen({
                               }}
                               className="w-full appearance-none pl-3.5 pr-8 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-900 bg-white cursor-pointer"
                             >
-                              {categoryHierarchy.map((h) => (
-                                <option key={h.id} value={h.name}>
-                                  {h.name}
-                                </option>
-                              ))}
+                              {(() => {
+                                const parentNames = categoryHierarchy.map((h) => h.name)
+                                const options = item.category && !parentNames.includes(item.category)
+                                  ? [item.category, ...parentNames]
+                                  : parentNames.length > 0
+                                  ? parentNames
+                                  : ["Bahan Baku", "Operasional & Perlengkapan", "Peralatan & Aset", "Lain-lain"]
+
+                                return options.map((catName) => (
+                                  <option key={catName} value={catName}>
+                                    {catName}
+                                  </option>
+                                ))
+                              })()}
                             </select>
                             <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                           </div>
                         </div>
 
+                        {/* Sub-Category Field */}
                         <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-slate-700">Sub-Kategori Produk</label>
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-slate-700">Sub-Kategori Produk</label>
+                            <button
+                              type="button"
+                              onClick={() => openAddCategoryModal("sub", item.category, idx)}
+                              className="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-800 flex items-center gap-0.5"
+                            >
+                              <Plus className="w-3 h-3 text-emerald-600" /> + Tambah Sub
+                            </button>
+                          </div>
                           <div className="relative">
                             <select
                               value={item.subCategory || "Umum"}
                               onChange={(e) => handleItemChange(idx, "subCategory", e.target.value)}
                               className="w-full appearance-none pl-3.5 pr-8 py-2.5 rounded-xl border border-emerald-300 focus:border-emerald-500 text-xs font-bold text-emerald-900 bg-emerald-50/50 cursor-pointer"
                             >
-                              {(categoryHierarchy.find((h) => h.name === item.category)?.subCategories || []).map((sub) => (
-                                <option key={sub.id} value={sub.name}>
-                                  {sub.name}
-                                </option>
-                              ))}
+                              {(() => {
+                                const matchingParent = categoryHierarchy.find(
+                                  (h) => h.name.toLowerCase().trim() === (item.category || "").toLowerCase().trim()
+                                )
+                                const dbSubNames = matchingParent ? matchingParent.subCategories.map((s) => s.name) : []
+                                const rawSubList = ["Umum", ...dbSubNames]
+                                if (item.subCategory && !rawSubList.includes(item.subCategory)) {
+                                  rawSubList.push(item.subCategory)
+                                }
+                                const subOptions = Array.from(new Set(rawSubList))
+
+                                return subOptions.map((subName) => (
+                                  <option key={subName} value={subName}>
+                                    {subName}
+                                  </option>
+                                ))
+                              })()}
                             </select>
                             <ChevronDown className="w-3.5 h-3.5 text-emerald-600 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                           </div>
@@ -896,27 +983,41 @@ export function VerificationSplitScreen({
       )}
 
       {/* STICKY BOTTOM ACC BAR FOR MOBILE PHONE (< sm) */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 sm:hidden bg-white/95 backdrop-blur-md border-t border-slate-200 p-3 flex items-center justify-between gap-3 shadow-lg">
-        <div className="pl-1">
-          <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">Total Netto</span>
-          <p className="text-base font-black font-mono text-emerald-700">
+      <div className="fixed bottom-0 left-0 right-0 z-50 sm:hidden bg-white/95 backdrop-blur-md border-t border-slate-200 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] flex items-center justify-between gap-2 shadow-2xl">
+        <div className="pl-1 shrink-0">
+          <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">
+            {batchInfo ? `Nota ${batchInfo.currentIndex + 1}/${batchInfo.totalCount}` : "Total Netto"}
+          </span>
+          <p className="text-sm sm:text-base font-black font-mono text-emerald-700">
             Rp {calculatedTotal.toLocaleString("id-ID")}
           </p>
         </div>
 
-        <button
-          type="button"
-          disabled={isSaving}
-          onClick={handleSave}
-          className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-emerald-600 active:bg-emerald-700 text-white font-extrabold text-sm transition-all shadow-md shadow-emerald-600/30 disabled:opacity-50"
-        >
-          {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          {batchInfo && batchInfo.currentIndex < batchInfo.totalCount - 1
-            ? `ACC #${batchInfo.currentIndex + 1}`
-            : editingReceiptId
-            ? "Simpan Perubahan"
-            : "Simpan / ACC"}
-        </button>
+        <div className="flex items-center gap-2">
+          {batchInfo && onSkipBatch && batchInfo.currentIndex < batchInfo.totalCount - 1 && (
+            <button
+              type="button"
+              onClick={onSkipBatch}
+              className="px-3 py-2.5 rounded-xl bg-amber-50 active:bg-amber-100 text-amber-800 font-bold text-xs border border-amber-200 transition-all"
+            >
+              Lewati
+            </button>
+          )}
+
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={handleSave}
+            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 active:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm transition-all shadow-md shadow-emerald-600/30 disabled:opacity-50"
+          >
+            {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {batchInfo && batchInfo.currentIndex < batchInfo.totalCount - 1
+              ? `ACC & Lanjut`
+              : editingReceiptId
+              ? "Simpan Perubahan"
+              : "Simpan / ACC"}
+          </button>
+        </div>
       </div>
     </div>
   )

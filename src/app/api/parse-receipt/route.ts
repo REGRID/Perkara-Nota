@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { checkRateLimit, incrementRateLimit, normalizeIp } from "@/lib/rateLimiter"
 import { getLearnedKnowledgeContext } from "@/lib/selfLearningEngine"
 import { db } from "@/lib/db"
+import { getOrSeedCategories } from "@/lib/categories"
 
 export interface ParsedItem {
   name: string
@@ -110,25 +111,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 3. Fetch Official Parent & Sub Categories strictly from Database
-    const dbCategories = await (db as any).customCategory.findMany({
-      orderBy: { createdAt: "asc" },
-    })
-
-    const parentCats = dbCategories.filter((c: any) => !c.parentId)
-    const subCats = dbCategories.filter((c: any) => c.parentId)
+    // 3. Fetch Official Parent & Sub Categories strictly from Database (auto-seeded if empty)
+    const categoryHierarchy = await getOrSeedCategories()
 
     // Build DB Hierarchy Map
-    const officialHierarchyMap = parentCats.map((parent: any) => {
-      const subsForParent = subCats
-        .filter((sub: any) => sub.parentId === parent.id)
-        .map((sub: any) => sub.name)
-
-      return {
-        parentName: parent.name,
-        subNames: Array.from(new Set(["Umum", ...subsForParent])),
-      }
-    })
+    const officialHierarchyMap = categoryHierarchy.map((parent) => ({
+      parentName: parent.name,
+      subNames: Array.from(new Set(["Umum", ...parent.subCategories.map((s) => s.name)])),
+    }))
 
     let officialCategoriesPromptText = "DAFTAR RESMI KATEGORI UTAMA & SUB-KATEGORI DATABASE (DILARANG MEMBUAT BARU/SENDIRI):\n"
     if (officialHierarchyMap.length > 0) {

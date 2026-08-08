@@ -485,31 +485,33 @@ export function ReceiptImageUpload({
             </label>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 w-full max-w-md pt-2">
-              <label
-                htmlFor={isQuotaReached ? undefined : "gallery-file-input"}
+              <button
+                type="button"
+                disabled={isQuotaReached || isProcessing}
                 onClick={() => triggerFileInput("gallery-file-input")}
-                className={`inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-extrabold text-sm transition-all shadow-md ${
-                  isQuotaReached
+                className={`inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-extrabold text-sm transition-all shadow-md active:scale-95 ${
+                  isQuotaReached || isProcessing
                     ? "bg-slate-300 text-slate-500 cursor-not-allowed shadow-none"
-                    : "bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white cursor-pointer active:scale-95"
+                    : "bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white cursor-pointer"
                 }`}
               >
                 <ImageIcon className="w-4 h-4 text-emerald-400" />
                 Pilih Foto Galeri (Batch Multi-File)
-              </label>
+              </button>
 
-              <label
-                htmlFor={isQuotaReached ? undefined : "camera-file-input"}
+              <button
+                type="button"
+                disabled={isQuotaReached || isProcessing}
                 onClick={() => triggerFileInput("camera-file-input")}
-                className={`inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-extrabold text-sm transition-all shadow-md ${
-                  isQuotaReached
+                className={`inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-extrabold text-sm transition-all shadow-md active:scale-95 ${
+                  isQuotaReached || isProcessing
                     ? "bg-slate-300 text-slate-500 cursor-not-allowed shadow-none"
-                    : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white cursor-pointer active:scale-95"
+                    : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white cursor-pointer"
                 }`}
               >
                 <Camera className="w-4 h-4 text-white" />
                 Foto Kamera Langsung
-              </label>
+              </button>
             </div>
 
             <div className="flex items-center justify-center gap-3 pt-3 text-[11px] text-slate-400 font-semibold">
