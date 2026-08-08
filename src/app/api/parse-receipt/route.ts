@@ -22,7 +22,8 @@ export interface ParsedReceiptResult {
   items: ParsedItem[]
 }
 
-function parseIndonesianPrice(str: string): number {
+function parseIndonesianPrice(str: string | number): number {
+  if (typeof str === "number") return isNaN(str) ? 0 : str
   if (!str) return 0
   let clean = String(str).replace(/^Rp\.?\s*/i, "").trim()
   clean = clean.replace(/,\d{2}$/, "").replace(/,-$/, "")
@@ -217,16 +218,28 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
 
     contentsParts.push({ text: promptText })
 
-    const candidateModels = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-flash-latest"]
+    const candidateModels = [
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash-lite",
+      "gemini-2.5-flash",
+      "gemini-3.6-flash",
+      "gemini-2.0-flash",
+      "gemini-2.0-flash-lite",
+      "gemini-1.5-flash",
+      "gemini-1.5-flash-8b",
+      "gemini-flash-latest",
+    ]
     let textOutput = ""
     let lastError: any = null
-    let usedModel = "gemini-2.0-flash"
+    let usedModel = candidateModels[0]
 
     for (const model of candidateModels) {
       try {
+        console.log(`[Gemini OCR API] Trying model candidate: ${model}...`)
         textOutput = await callGeminiRestApi(apiKey, model, contentsParts)
         if (textOutput) {
           usedModel = model
+          console.log(`[Gemini OCR API] Successfully parsed receipt using model: ${usedModel}`)
           break
         }
       } catch (err: any) {
@@ -234,7 +247,7 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
         if (err.message?.includes("GOOGLE_API_KEY_INVALID")) {
           return NextResponse.json({ error: "INVALID_API_KEY", message: err.message }, { status: 400 })
         }
-        console.warn(`Gemini Model ${model} failed, trying next candidate:`, err.message)
+        console.warn(`[Gemini OCR API] Model ${model} failed or rate limited (${err.message}). Auto-switching to next candidate...`)
       }
     }
 
