@@ -11,9 +11,9 @@ export interface OCRProgress {
  */
 export function compressImageBase64(
   base64Data: string,
-  maxWidth = 1600,
-  maxHeight = 1600,
-  _quality = 0.85
+  maxWidth = 1400,
+  maxHeight = 1400,
+  quality = 0.82
 ): Promise<string> {
   return new Promise((resolve) => {
     if (!base64Data || !base64Data.startsWith("data:image")) {
@@ -41,28 +41,22 @@ export function compressImageBase64(
         }
       }
 
-      // Guarantee 1:1 Square canvas: side = max(scaledWidth, scaledHeight)
-      const side = Math.max(scaledWidth, scaledHeight)
-
       const canvas = document.createElement("canvas")
-      canvas.width = side
-      canvas.height = side
+      canvas.width = scaledWidth
+      canvas.height = scaledHeight
       const ctx = canvas.getContext("2d")
 
       if (!ctx) return resolve(base64Data)
 
-      // Clear canvas so letterbox padding is 100% transparent
-      ctx.clearRect(0, 0, side, side)
-
-      // Center the image inside the 1:1 square canvas
-      const offsetX = Math.round((side - scaledWidth) / 2)
-      const offsetY = Math.round((side - scaledHeight) / 2)
+      // Solid white background for clean receipt contrast & small JPEG payload
+      ctx.fillStyle = "#ffffff"
+      ctx.fillRect(0, 0, scaledWidth, scaledHeight)
 
       ctx.imageSmoothingEnabled = true
       ctx.imageSmoothingQuality = "high"
-      ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight)
+      ctx.drawImage(img, 0, 0, scaledWidth, scaledHeight)
 
-      const compressedBase64 = canvas.toDataURL("image/png")
+      const compressedBase64 = canvas.toDataURL("image/jpeg", quality)
       resolve(compressedBase64)
     }
     img.onerror = () => {
@@ -74,7 +68,7 @@ export function compressImageBase64(
 }
 
 /**
- * Helper to rotate a base64 image onto a clean 1:1 Square Canvas with transparent letterbox padding
+ * Helper to rotate a base64 image cleanly with JPEG output
  */
 export function rotateImageBase64(base64Data: string, degrees: number): Promise<string> {
   return new Promise((resolve) => {
@@ -93,23 +87,20 @@ export function rotateImageBase64(base64Data: string, degrees: number): Promise<
         rotatedH = img.width
       }
 
-      // Guarantee 1:1 Square Canvas
-      const side = Math.max(rotatedW, rotatedH)
-
       const canvas = document.createElement("canvas")
-      canvas.width = side
-      canvas.height = side
+      canvas.width = rotatedW
+      canvas.height = rotatedH
       const ctx = canvas.getContext("2d")
       if (!ctx) return resolve(base64Data)
 
-      // Clear canvas for 100% transparent letterbox padding
-      ctx.clearRect(0, 0, side, side)
+      ctx.fillStyle = "#ffffff"
+      ctx.fillRect(0, 0, rotatedW, rotatedH)
 
-      ctx.translate(side / 2, side / 2)
+      ctx.translate(rotatedW / 2, rotatedH / 2)
       ctx.rotate((degrees * Math.PI) / 180)
       ctx.drawImage(img, -img.width / 2, -img.height / 2)
 
-      resolve(canvas.toDataURL("image/png"))
+      resolve(canvas.toDataURL("image/jpeg", 0.85))
     }
     img.onerror = () => resolve(base64Data)
     img.src = base64Data

@@ -188,7 +188,17 @@ export default function HomePage() {
     try {
       setOcrPercent(0.7)
       const response = await parsePromise
-      const data = await response.json()
+      const responseText = await response.text()
+
+      let data: any = {}
+      try {
+        data = JSON.parse(responseText)
+      } catch (jsonErr) {
+        if (response.status === 413 || responseText.includes("Request Entity Too Large")) {
+          throw new Error("Ukuran foto nota terlalu besar melebihi batas server. Sistem telah mengompres ulang gambar, silakan coba lagi.")
+        }
+        throw new Error(`Respon server tidak valid (${response.status}): ${responseText.slice(0, 100)}`)
+      }
 
       if (!response.ok) {
         if (response.status === 429 || data.error === "QUOTA_EXCEEDED") {
