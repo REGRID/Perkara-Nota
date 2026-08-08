@@ -51,6 +51,11 @@ async function callGeminiRestApi(apiKey: string, modelName: string, contentsPart
 
   if (!response.ok) {
     const errText = await response.text()
+    if (errText.includes("API_KEY_INVALID") || errText.includes("API key not valid") || errText.includes("INVALID_ARGUMENT")) {
+      const invalidErr = new Error("GOOGLE_API_KEY_INVALID: API Key tidak valid. Silakan buat API Key gratis di https://aistudio.google.com/app/apikey")
+      ;(invalidErr as any).status = 400
+      throw invalidErr
+    }
     if (response.status === 429 || errText.includes("RESOURCE_EXHAUSTED") || errText.includes("Quota exceeded")) {
       const quotaErr = new Error("GOOGLE_CLOUD_QUOTA_EXCEEDED")
       ;(quotaErr as any).status = 429
@@ -205,22 +210,28 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
     let textOutput = ""
 
     try {
-      textOutput = await callGeminiRestApi(apiKey, "gemini-flash-latest", contentsParts)
+      textOutput = await callGeminiRestApi(apiKey, "gemini-2.0-flash", contentsParts)
     } catch (e1: any) {
+      if (e1.message?.includes("GOOGLE_API_KEY_INVALID")) {
+        return NextResponse.json({ error: "INVALID_API_KEY", message: e1.message }, { status: 400 })
+      }
       if (e1.status === 429 || e1.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
         return NextResponse.json(
           {
             error: "QUOTA_EXCEEDED",
-            message: "Kuota harian Google Cloud Gemini API telah habis atau batas rate limit tercapai. Silakan coba lagi esok hari.",
+            message: "Kuota harian Google Cloud Gemini API telah habis (Rate limit 429). Silakan coba lagi esok hari.",
           },
           { status: 429 }
         )
       }
 
-      console.warn("gemini-flash-latest failed, trying gemini-2.0-flash-lite:", e1.message)
+      console.warn("gemini-2.0-flash failed, trying gemini-1.5-flash:", e1.message)
       try {
-        textOutput = await callGeminiRestApi(apiKey, "gemini-2.0-flash-lite", contentsParts)
+        textOutput = await callGeminiRestApi(apiKey, "gemini-1.5-flash", contentsParts)
       } catch (e2: any) {
+        if (e2.message?.includes("GOOGLE_API_KEY_INVALID")) {
+          return NextResponse.json({ error: "INVALID_API_KEY", message: e2.message }, { status: 400 })
+        }
         if (e2.status === 429 || e2.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
           return NextResponse.json(
             {
@@ -231,10 +242,13 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
           )
         }
 
-        console.warn("gemini-2.0-flash-lite failed, trying gemini-2.0-flash:", e2.message)
+        console.warn("gemini-1.5-flash failed, trying gemini-1.5-pro:", e2.message)
         try {
-          textOutput = await callGeminiRestApi(apiKey, "gemini-2.0-flash", contentsParts)
+          textOutput = await callGeminiRestApi(apiKey, "gemini-1.5-pro", contentsParts)
         } catch (e3: any) {
+          if (e3.message?.includes("GOOGLE_API_KEY_INVALID")) {
+            return NextResponse.json({ error: "INVALID_API_KEY", message: e3.message }, { status: 400 })
+          }
           if (e3.status === 429 || e3.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
             return NextResponse.json(
               {
