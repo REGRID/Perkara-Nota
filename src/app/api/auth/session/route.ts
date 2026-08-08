@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getAdminPassword } from "@/lib/adminAccounts"
+import { validateAdminCredentials } from "@/lib/adminAccounts"
 
 export async function GET(req: NextRequest) {
   try {
@@ -20,9 +20,9 @@ export async function GET(req: NextRequest) {
     const username = (parts[0] || "").trim().toLowerCase()
     const password = (parts[1] || "").trim()
 
-    const validPassword = await getAdminPassword(username)
+    const isValid = await validateAdminCredentials(username, password)
 
-    if (validPassword && password === validPassword) {
+    if (isValid) {
       return NextResponse.json({
         authenticated: true,
         user: { username },

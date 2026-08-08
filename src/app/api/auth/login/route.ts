@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getAdminPassword } from "@/lib/adminAccounts"
+import { validateAdminCredentials } from "@/lib/adminAccounts"
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,9 +12,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "ID Admin dan Password harus diisi" }, { status: 400 })
     }
 
-    const validPassword = await getAdminPassword(cleanUsername)
+    const isValid = await validateAdminCredentials(cleanUsername, cleanPassword)
 
-    if (!validPassword || cleanPassword !== validPassword) {
+    if (!isValid) {
       return NextResponse.json({ error: "ID Admin atau Password salah. Akses ditolak." }, { status: 401 })
     }
 
