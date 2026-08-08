@@ -3,6 +3,7 @@ import { checkRateLimit, incrementRateLimit, normalizeIp } from "@/lib/rateLimit
 import { getLearnedKnowledgeContext } from "@/lib/selfLearningEngine"
 import { db } from "@/lib/db"
 import { getOrSeedCategories } from "@/lib/categories"
+import { GoogleGenAI } from "@google/genai"
 
 export interface ParsedItem {
   name: string
@@ -40,13 +41,35 @@ function sanitizeRawText(input: string): string {
 }
 
 async function callGeminiRestApi(apiKey: string, modelName: string, contentsParts: any[]) {
+  try {
+    const ai = new GoogleGenAI({ apiKey })
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: contentsParts,
+    })
+    if (response.text) {
+      return response.text.trim()
+    }
+  } catch (sdkErr: any) {
+    const errText = sdkErr.message || String(sdkErr)
+    if (errText.includes("API_KEY_INVALID") || errText.includes("API key not valid") || errText.includes("INVALID_ARGUMENT")) {
+      const invalidErr = new Error("GOOGLE_API_KEY_INVALID: API Key tidak valid. Silakan buat API Key gratis di https://aistudio.google.com/app/apikey")
+      ;(invalidErr as any).status = 400
+      throw invalidErr
+    }
+    if (errText.includes("429") || errText.includes("RESOURCE_EXHAUSTED") || errText.includes("Quota exceeded")) {
+      const quotaErr = new Error("GOOGLE_CLOUD_QUOTA_EXCEEDED")
+      ;(quotaErr as any).status = 429
+      throw quotaErr
+    }
+  }
+
+  // Fallback to direct REST API if SDK returns empty
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: contentsParts }],
-    }),
+    body: JSON.stringify({ contents: [{ parts: contentsParts }] }),
   })
 
   if (!response.ok) {
@@ -61,10 +84,7 @@ async function callGeminiRestApi(apiKey: string, modelName: string, contentsPart
       ;(quotaErr as any).status = 429
       throw quotaErr
     }
-    if (response.status === 404) {
-      throw new Error(`MODEL_NOT_FOUND: Model ${modelName} tidak tersedia di endpoint API v1beta`)
-    }
-    throw new Error(`Gemini REST API Error (${response.status}): ${errText}`)
+    throw new Error(`Gemini API Error (${response.status}): ${errText}`)
   }
 
   const data = await response.json()
@@ -87,7 +107,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: "QUOTA_EXCEEDED",
-          message: `Batas harian scan nota (20 scan/hari) telah tercapai untuk IP ${cleanIp}. Silakan coba lagi besok.`,
+          message: `Batas harian scan nota (${rateLimit.remaining} scan/hari) telah tercapai. Silakan coba lagi besok.`,
           remaining: 0,
           resetAt: rateLimit.resetAt,
         },
@@ -109,13 +129,13 @@ export async function POST(req: NextRequest) {
       (body && typeof body === "object" ? body.apiKey : null) ||
       process.env.GEMINI_API_KEY
 
-    if (!apiKey) {
+    if (!apiKey || apiKey.length < 10) {
       return NextResponse.json(
         {
-          error: "API_KEY_MISSING",
-          message: "Kunci GEMINI_API_KEY belum dikonfigurasi di lingkungan server (.env.local) atau diisi di modal UI.",
+          error: "INVALID_API_KEY",
+          message: "Kunci GEMINI_API_KEY belum dikonfigurasi di lingkungan server (.env.local) atau Vercel. Silakan buat API Key gratis di https://aistudio.google.com/app/apikey",
         },
-        { status: 500 }
+        { status: 400 }
       )
     }
 
