@@ -1,6 +1,6 @@
 import { db } from "@/lib/db"
 
-export const DAILY_SCAN_LIMIT = 500
+export const DAILY_SCAN_LIMIT = 999999
 
 export interface RateLimitResult {
   allowed: boolean
@@ -27,6 +27,7 @@ export function normalizeIp(ipAddress?: string | null): string {
 /**
  * Checks rate limit using persistent database tracking.
  * Normalizes IP and tracks daily usage window reliably across page refreshes.
+ * Note: Internal scan limit is disabled as long as the API token is functional.
  */
 export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult> {
   const now = new Date()
@@ -83,7 +84,8 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
 
     const current = limitRecord.scanCount
     const remaining = Math.max(DAILY_SCAN_LIMIT - current, 0)
-    const allowed = current < DAILY_SCAN_LIMIT
+    // Internal rate limit disabled: allow scanning as long as API token works
+    const allowed = true
 
     return {
       allowed,

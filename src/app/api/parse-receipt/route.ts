@@ -46,7 +46,14 @@ async function callGeminiRestApi(apiKey: string, modelName: string, contentsPart
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ parts: contentsParts }] }),
+    body: JSON.stringify({
+      contents: [{ parts: contentsParts }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 2048,
+        responseMimeType: "application/json",
+      },
+    }),
   })
 
   if (!response.ok) {
@@ -210,41 +217,46 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
 
     contentsParts.push({ text: promptText })
 
+    const candidateModels = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-flash-latest"]
     let textOutput = ""
+    let lastError: any = null
+    let usedModel = "gemini-2.0-flash"
 
-    try {
-      textOutput = await callGeminiRestApi(apiKey, "gemini-flash-latest", contentsParts)
-    } catch (e1: any) {
-      if (e1.message?.includes("GOOGLE_API_KEY_INVALID")) {
-        return NextResponse.json({ error: "INVALID_API_KEY", message: e1.message }, { status: 400 })
-      }
-
-      console.warn("gemini-flash-latest failed, trying gemini-2.0-flash:", e1.message)
+    for (const model of candidateModels) {
       try {
-        textOutput = await callGeminiRestApi(apiKey, "gemini-2.0-flash", contentsParts)
-      } catch (e2: any) {
-        if (e2.message?.includes("GOOGLE_API_KEY_INVALID")) {
-          return NextResponse.json({ error: "INVALID_API_KEY", message: e2.message }, { status: 400 })
+        textOutput = await callGeminiRestApi(apiKey, model, contentsParts)
+        if (textOutput) {
+          usedModel = model
+          break
         }
-        if (e2.status === 429 || e2.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
-          return NextResponse.json(
-            {
-              error: "QUOTA_EXCEEDED",
-              message: "Batas frekuensi Google Gemini API (Rate limit 429) tercapai. Silakan coba beberapa detik lagi.",
-            },
-            { status: 429 }
-          )
+      } catch (err: any) {
+        lastError = err
+        if (err.message?.includes("GOOGLE_API_KEY_INVALID")) {
+          return NextResponse.json({ error: "INVALID_API_KEY", message: err.message }, { status: 400 })
         }
+        console.warn(`Gemini Model ${model} failed, trying next candidate:`, err.message)
+      }
+    }
 
-        console.error("Gemini API parsing failed:", e2)
+    if (!textOutput) {
+      if (lastError?.status === 429 || lastError?.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
         return NextResponse.json(
           {
-            error: "API_PARSE_FAILED",
-            message: `Gagal memproses nota dari server AI: ${e2.message || "Kesalahan API"}`,
+            error: "QUOTA_EXCEEDED",
+            message: "Batas frekuensi Google Gemini API (Rate limit 429) tercapai. Silakan coba beberapa detik lagi.",
           },
-          { status: 502 }
+          { status: 429 }
         )
       }
+
+      console.error("Gemini API parsing failed all candidates:", lastError)
+      return NextResponse.json(
+        {
+          error: "API_PARSE_FAILED",
+          message: `Gagal memproses nota dari server AI: ${lastError?.message || "Kesalahan API"}`,
+        },
+        { status: 502 }
+      )
     }
 
     const jsonMatch = textOutput.match(/\{[\s\S]*\}/)

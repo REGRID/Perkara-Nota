@@ -206,11 +206,11 @@ export function ReceiptImageUpload({
         <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-900 shadow-md space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="flex items-center gap-2 font-bold text-sm text-amber-800">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-            <span>Kuota Scan Harian Habis</span>
+            <span>Bermasalah pada Kuota / API Key</span>
           </div>
           <p className="text-xs text-amber-800 font-medium leading-relaxed">
             {quotaError ||
-              "Batas 20 scan per hari telah tercapai. Silakan mencoba kembali besok."}
+              "Batas frekuensi Google Gemini API tercapai atau API Key tidak valid. Silakan periksa kembali API Key Anda."}
           </p>
         </div>
       )}
@@ -522,11 +522,11 @@ export function ReceiptImageUpload({
 
               <div className="space-y-1">
                 <h3 className="text-lg sm:text-xl font-extrabold text-slate-900">
-                  {isQuotaReached ? "Kuota Scan Harian Habis" : "Unggah Nota"}
+                  {isQuotaReached ? "Kendala Kuota / API Key" : "Unggah Nota"}
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
                   {isQuotaReached
-                    ? "Batas 20 scan per hari telah tercapai. Coba lagi besok."
+                    ? (quotaError || "Batas frekuensi Google Gemini API tercapai atau API Key tidak valid.")
                     : "Pilih foto dari galeri atau ambil foto dari kamera."}
                 </p>
               </div>
