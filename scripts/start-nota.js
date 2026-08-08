@@ -6,20 +6,53 @@ const fs = require('fs');
 const PORT = process.env.PORT || 3001;
 const HOST = '0.0.0.0';
 
-// Function to get LAN IPv4 addresses
+// Function to get LAN IPv4 addresses, filtering out virtual adapters
 function getLanIps() {
   const interfaces = os.networkInterfaces();
   const lanIps = [];
 
   for (const interfaceName of Object.keys(interfaces)) {
+    const lowerName = interfaceName.toLowerCase();
+    // Filter out virtual/tunnel adapters that external devices cannot access
+    if (
+      lowerName.includes('virtualbox') ||
+      lowerName.includes('vbox') ||
+      lowerName.includes('vmware') ||
+      lowerName.includes('vethernet') ||
+      lowerName.includes('wsl') ||
+      lowerName.includes('pseudo') ||
+      lowerName.includes('loopback') ||
+      lowerName.includes('hyper-v') ||
+      lowerName.includes('bluetooth') ||
+      lowerName.includes('zerotier') ||
+      lowerName.includes('tailscale') ||
+      lowerName.includes('docker')
+    ) {
+      continue;
+    }
+
     for (const iface of interfaces[interfaceName]) {
       if (iface.family === 'IPv4' && !iface.internal) {
-        lanIps.push(iface.address);
+        // Exclude APIPA (169.254.x.x) and loopback addresses
+        if (!iface.address.startsWith('169.254.') && !iface.address.startsWith('127.')) {
+          lanIps.push(iface.address);
+        }
       }
     }
   }
 
   return lanIps;
+}
+
+// Get mDNS Hostname URL (e.g. http://xinora.local:3001)
+function getHostnameUrl(port, isHttps = false) {
+  try {
+    const rawHost = os.hostname().toLowerCase().replace(/[^a-z0-9-]/g, '');
+    const protocol = isHttps ? 'https' : 'http';
+    return `${protocol}://${rawHost}.local:${port}`;
+  } catch (err) {
+    return null;
+  }
 }
 
 // Attempt to add Windows Firewall Rule for Port 3001
@@ -36,6 +69,8 @@ function ensureWindowsFirewall() {
 // Print banner with LAN access URLs
 function printBanner(lanIps, port, isHttps = false) {
   const protocol = isHttps ? 'https' : 'http';
+  const hostnameUrl = getHostnameUrl(port, isHttps);
+
   console.log('\n======================================================');
   console.log('       NOTA-PHOTO AI - SERVER STRUK / FAKTUR LOKAL    ');
   console.log('======================================================');
@@ -44,19 +79,25 @@ function printBanner(lanIps, port, isHttps = false) {
   console.log(` > Akses Komputer ini (Lokal):`);
   console.log(`   ${protocol}://localhost:${port}`);
   console.log('');
-  console.log(` > Akses HP / Tablet / Device Lain (Wi-Fi / LAN):`);
+  console.log(` > Akses HP / Tablet / Device Lain di Wi-Fi / LAN:`);
+  if (hostnameUrl) {
+    console.log(`   🌟 REKOMENDASI (Domain Permanen .local):`);
+    console.log(`      ${hostnameUrl}`);
+    console.log(`      (Alamat ini tidak pernah berubah meskipun IP Wi-Fi berubah!)`);
+  }
+  console.log(`   📌 ALTERNATIF (Alamat IP Fisik):`);
   if (lanIps.length > 0) {
     lanIps.forEach(ip => {
-      console.log(`   ${protocol}://${ip}:${port}`);
+      console.log(`      ${protocol}://${ip}:${port}`);
     });
   } else {
-    console.log(`   ${protocol}://<IP-Komputer>:${port}`);
+    console.log(`      ${protocol}://<IP-Komputer>:${port}`);
   }
   console.log('------------------------------------------------------');
-  console.log(' 💡 CARA MEMBUKA PWA / FULLSCREEN DI TABLET:');
-  console.log(` 1. Buka ${protocol}://<IP-Komputer>:${port} di Browser Tablet.`);
-  console.log(' 2. Tekan tombol "Mode Fullscreen App" di kanan atas tampilan.');
-  console.log(' 3. Tekan Titik 3 > "Tambahkan ke Layar Utama" / "Instal Aplikasi".');
+  console.log(' 💡 CARA MEMBUKA PWA / FULLSCREEN DI TABLET / HP:');
+  console.log(` 1. Buka ${hostnameUrl || `${protocol}://${lanIps[0] || 'IP'}:${port}`} di Browser.`);
+  console.log(' 2. Gunakan Menu Browser > "Tambahkan ke Layar Utama" / "Instal App".');
+  console.log(' 3. Jika koneksi dari HP lambat/gagal: jalankan BUAT_IZIN_FIREWALL_LAN.bat');
   console.log('======================================================\n');
 }
 

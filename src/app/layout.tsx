@@ -25,6 +25,9 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "Nota Photo AI",
   },
+  verification: {
+    google: "us2F4BU3Hm51-MI_cnTqBGnFRQpcjrTOzPOMmbKGePE",
+  },
 }
 
 export default function RootLayout({
