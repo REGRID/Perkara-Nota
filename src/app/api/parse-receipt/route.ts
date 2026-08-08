@@ -41,7 +41,8 @@ function sanitizeRawText(input: string): string {
 }
 
 async function callGeminiRestApi(apiKey: string, modelName: string, contentsParts: any[]) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`
+  const cleanKey = (apiKey || "").trim().replace(/^["']|["']$/g, "")
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${cleanKey}`
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
