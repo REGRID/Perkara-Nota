@@ -98,7 +98,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Masukkan ID..."
+                  placeholder="Masukkan ID (rama / refo)..."
                   autoComplete="username"
                   className="w-full bg-slate-50 border border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-2xl px-4 py-3.5 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition-all outline-none"
                 />

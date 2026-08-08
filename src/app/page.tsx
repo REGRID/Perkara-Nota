@@ -6,15 +6,17 @@ import { ReceiptImageUpload, BatchFileItem } from "@/components/ReceiptImageUplo
 import { VerificationSplitScreen } from "@/components/VerificationSplitScreen"
 import { ReceiptHistoryDashboard, ReceiptData } from "@/components/ReceiptHistoryDashboard"
 import { AdminLoginScreen } from "@/components/AdminLoginScreen"
+import { SettingsModal } from "@/components/SettingsModal"
 import { ParsedReceiptResult } from "@/app/api/parse-receipt/route"
-import { Camera, History, ShieldCheck, CheckCircle2, Maximize2, LogOut, UserCheck, Loader2 } from "lucide-react"
+import { Camera, History, ShieldCheck, CheckCircle2, Maximize2, LogOut, UserCheck, Loader2, Settings } from "lucide-react"
 
 export default function HomePage() {
   // Admin Auth Gate State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
-  const [adminUser, setAdminUser] = useState<string>("admin")
+  const [adminUser, setAdminUser] = useState<string>("rama")
 
   const [activeTab, setActiveTab] = useState<"scan" | "history">("scan")
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
 
   // Scanning State
   const [isProcessing, setIsProcessing] = useState(false)
@@ -431,18 +433,20 @@ export default function HomePage() {
               </button>
             </div>
 
-            {/* Logout Admin Button */}
+            {/* Settings Gear Icon Button */}
             <button
               type="button"
               disabled={isProcessing}
-              onClick={handleLogout}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/10 text-red-400 font-bold text-xs border border-red-500/20 transition-all ml-1 ${
-                isProcessing ? "opacity-40 cursor-not-allowed pointer-events-none" : "hover:bg-red-500/20 active:bg-red-500/30 active:scale-95 cursor-pointer"
+              onClick={() => {
+                if (isProcessing) return
+                setShowSettingsModal(true)
+              }}
+              className={`inline-flex items-center justify-center p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-emerald-400 font-bold text-xs border border-slate-700 transition-all ml-1 cursor-pointer ${
+                isProcessing ? "opacity-40 cursor-not-allowed pointer-events-none" : "active:scale-95"
               }`}
-              title={isProcessing ? "Sedang memproses scan..." : "Keluar Admin"}
+              title={isProcessing ? "Sedang memproses scan..." : "Pengaturan & Keluar"}
             >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Keluar</span>
+              <Settings className="w-4 h-4 text-emerald-400" />
             </button>
           </div>
         </div>
@@ -533,6 +537,14 @@ export default function HomePage() {
           </button>
         </div>
       )}
+
+      {/* Settings Modal Card */}
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        currentAdminUser={adminUser}
+        onLogout={handleLogout}
+      />
     </main>
   )
 }

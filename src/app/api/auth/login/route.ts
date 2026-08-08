@@ -1,38 +1,24 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getAdminPassword } from "@/lib/adminAccounts"
 
 export async function POST(req: NextRequest) {
   try {
     const { username, password } = await req.json()
 
-    const cleanUsername = (username || "").trim()
+    const cleanUsername = (username || "").trim().toLowerCase()
     const cleanPassword = (password || "").trim()
 
     if (!cleanUsername || !cleanPassword) {
       return NextResponse.json({ error: "ID Admin dan Password harus diisi" }, { status: 400 })
     }
 
-    const adminAUser = process.env.ADMIN_A_USERNAME || "admin1"
-    const adminAPass = process.env.ADMIN_A_PASSWORD || "adminnota123"
+    const validPassword = await getAdminPassword(cleanUsername)
 
-    const adminBUser = process.env.ADMIN_B_USERNAME || "admin2"
-    const adminBPass = process.env.ADMIN_B_PASSWORD || "adminnota456"
-
-    const legacyUser = process.env.ADMIN_USERNAME || "admin"
-    const legacyPass = process.env.ADMIN_PASSWORD || "adminnota123"
-
-    let authenticatedUser: string | null = null
-
-    if (cleanUsername === adminAUser && cleanPassword === adminAPass) {
-      authenticatedUser = adminAUser
-    } else if (cleanUsername === adminBUser && cleanPassword === adminBPass) {
-      authenticatedUser = adminBUser
-    } else if (cleanUsername === legacyUser && cleanPassword === legacyPass) {
-      authenticatedUser = legacyUser
-    }
-
-    if (!authenticatedUser) {
+    if (cleanPassword !== validPassword) {
       return NextResponse.json({ error: "ID Admin atau Password salah. Akses ditolak." }, { status: 401 })
     }
+
+    const authenticatedUser = cleanUsername
 
     // Auth Token encoded with actual authenticated username
     const tokenPayload = Buffer.from(`${authenticatedUser}:${cleanPassword}:nota_session_secret`).toString("base64")
