@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { extractTextFromReceipt } from "@/lib/ocr"
 import { ReceiptImageUpload, BatchFileItem } from "@/components/ReceiptImageUpload"
 import { VerificationSplitScreen } from "@/components/VerificationSplitScreen"
@@ -20,6 +20,7 @@ export default function HomePage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [ocrStatus, setOcrStatus] = useState("")
   const [ocrPercent, setOcrPercent] = useState(0)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   // Batch Queue State for Mass Upload
   const [batchQueue, setBatchQueue] = useState<BatchFileItem[]>([])
@@ -38,6 +39,30 @@ export default function HomePage() {
   const [existingPaymentMethod, setExistingPaymentMethod] = useState<string>("Cash")
   const [existingPaymentStatus, setExistingPaymentStatus] = useState<string>("Lunas")
   const [existingNote, setExistingNote] = useState<string>("")
+
+  // Realtime Quota Status State
+  const [quotaInfo, setQuotaInfo] = useState<{
+    dailyLimit: number
+    remaining: number
+    used: number
+    allowed: boolean
+  } | null>(null)
+
+  const fetchQuota = async () => {
+    try {
+      const res = await fetch("/api/quota", { cache: "no-store" })
+      if (res.ok) {
+        const data = await res.json()
+        setQuotaInfo(data)
+      }
+    } catch (e) {
+      console.error("Failed to fetch quota:", e)
+    }
+  }
+
+  useEffect(() => {
+    fetchQuota()
+  }, [isProcessing])
 
   // Initial Auth Check on Mount
   useEffect(() => {
@@ -71,12 +96,31 @@ export default function HomePage() {
   }, [])
 
   const handleLogout = async () => {
+    if (isProcessing) return
     try {
       await fetch("/api/auth/logout", { method: "POST" })
     } catch {}
     localStorage.removeItem("nota_admin_token")
     localStorage.removeItem("nota_admin_user")
     setIsAuthenticated(false)
+  }
+
+  // Cancel scanning in-flight request
+  const handleCancelScan = () => {
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort()
+      } catch {}
+      abortControllerRef.current = null
+    }
+    setIsProcessing(false)
+    setBatchQueue([])
+    setBatchIndex(0)
+    setImagePreviewUrl(null)
+    setParsedResult(null)
+    setQuotaError(null)
+    setOcrStatus("")
+    setOcrPercent(0)
   }
 
   // Fetch with retry helper for resilient network calls
@@ -88,7 +132,8 @@ export default function HomePage() {
         return fetchWithRetry(url, options, retries - 1, delay * 1.5)
       }
       return res
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === "AbortError") throw err
       if (retries > 0) {
         await new Promise((r) => setTimeout(r, delay))
         return fetchWithRetry(url, options, retries - 1, delay * 1.5)
@@ -100,12 +145,20 @@ export default function HomePage() {
   const processBatchItem = async (index: number, queue: BatchFileItem[]) => {
     if (index < 0 || index >= queue.length) return
 
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort()
+      } catch {}
+    }
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     const item = queue[index]
     setIsProcessing(true)
     setQuotaError(null)
     setEditingReceiptId(null)
     setImagePreviewUrl(item.base64)
-    setOcrStatus(`Memproses Nota #${index + 1} dari ${queue.length} via Gemini AI...`)
+    setOcrStatus(`Memproses Nota #${index + 1} dari ${queue.length}...`)
     setOcrPercent(0.3)
 
     const userApiKey = typeof window !== "undefined" ? localStorage.getItem("gemini_api_key") || "" : ""
@@ -117,6 +170,7 @@ export default function HomePage() {
         "Content-Type": "application/json",
         ...(userApiKey ? { "x-gemini-api-key": userApiKey } : {}),
       },
+      signal: controller.signal,
       body: JSON.stringify({
         rawText: "",
         imageBase64: item.base64,
@@ -138,21 +192,25 @@ export default function HomePage() {
         if (response.status === 429 || data.error === "QUOTA_EXCEEDED") {
           const limitMsg =
             data.message ||
-            "Batas kuota harian scan nota (20 scan/hari) atau kuota Google Cloud telah tercapai. Silakan coba lagi besok."
+            "Batas harian pemindaian nota telah tercapai. Silakan coba lagi besok."
           setQuotaError(limitMsg)
           throw new Error(limitMsg)
         }
-        throw new Error(data.message || data.error || "Gagal memproses nota via Gemini API")
+        throw new Error(data.message || data.error || "Gagal memproses nota")
       }
 
       setOcrPercent(1.0)
-      setOcrStatus("Pemrosesan AI Selesai!")
+      setOcrStatus("Pemrosesan Selesai!")
 
       if (data.result) {
         setParsedResult(data.result)
         setParsingMode(data.mode || "gemini_multimodal_vision")
       }
     } catch (err: any) {
+      if (err.name === "AbortError") {
+        console.log("Pemindaian dibatalkan oleh pengguna.")
+        return
+      }
       console.error("Scanning Error:", err)
       if (!quotaError) {
         alert(`Gagal memproses nota #${index + 1}: ${err.message || "Kesalahan server"}`)
@@ -160,6 +218,7 @@ export default function HomePage() {
       setImagePreviewUrl(null)
     } finally {
       setIsProcessing(false)
+      fetchQuota()
     }
   }
 
@@ -283,12 +342,51 @@ export default function HomePage() {
             <div>
               <h1 className="font-extrabold text-base sm:text-lg tracking-tight leading-tight flex items-center gap-2">
                 Nota-Photo
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  Cloud Secured
-                </span>
+
+                {/* Quota Status Dot Indicator with Tooltip */}
+                {quotaInfo && (
+                  <div
+                    className="relative group inline-flex items-center cursor-pointer ml-1"
+                    title={`Kuota Scan: ${quotaInfo.remaining} / ${quotaInfo.dailyLimit}`}
+                  >
+                    <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-800 border border-slate-700/80 hover:border-slate-600 transition-all">
+                      <span
+                        className={`w-2.5 h-2.5 rounded-full shadow-xs transition-all ${
+                          !quotaInfo.allowed || quotaInfo.remaining === 0
+                            ? "bg-red-500 shadow-red-500/50"
+                            : quotaInfo.remaining <= Math.ceil(quotaInfo.dailyLimit * 0.25)
+                            ? "bg-amber-400 animate-pulse shadow-amber-400/50"
+                            : "bg-emerald-400 animate-pulse shadow-emerald-400/50"
+                        }`}
+                      />
+                      <span className="text-[11px] font-mono text-slate-300 font-bold">
+                        {quotaInfo.remaining}/{quotaInfo.dailyLimit}
+                      </span>
+                    </div>
+
+                    {/* Hover Tooltip Card */}
+                    <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 hidden group-hover:flex flex-col items-center z-50 pointer-events-none transition-all animate-in fade-in zoom-in-95 duration-150">
+                      <div className="w-2 h-2 bg-slate-800 rotate-45 border-t border-l border-slate-700 -mb-1" />
+                      <div className="bg-slate-800 text-white text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate-700 shadow-xl whitespace-nowrap flex items-center gap-2">
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            !quotaInfo.allowed || quotaInfo.remaining === 0
+                              ? "bg-red-500"
+                              : quotaInfo.remaining <= Math.ceil(quotaInfo.dailyLimit * 0.25)
+                              ? "bg-amber-400"
+                              : "bg-emerald-400"
+                          }`}
+                        />
+                        <span>
+                          Kuota Scan: <strong>{quotaInfo.remaining}</strong> / {quotaInfo.dailyLimit}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </h1>
               <p className="text-[11px] text-slate-400 hidden sm:block">
-                Server-Side Gemini Cloud API Scanner & Relational Itemization
+                Pemindai & Rekap Nota Digital
               </p>
             </div>
           </div>
@@ -298,7 +396,9 @@ export default function HomePage() {
             <div className="hidden sm:flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
               <button
                 type="button"
+                disabled={isProcessing}
                 onClick={() => {
+                  if (isProcessing) return
                   setImagePreviewUrl(null)
                   setActiveTab("scan")
                 }}
@@ -306,15 +406,17 @@ export default function HomePage() {
                   activeTab === "scan" && !imagePreviewUrl
                     ? "bg-emerald-600 text-white shadow-sm"
                     : "text-slate-300 hover:text-white"
-                }`}
+                } ${isProcessing ? "opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
               >
                 <Camera className="w-4 h-4" />
-                Scan Nota Baru
+                Scan Nota
               </button>
 
               <button
                 type="button"
+                disabled={isProcessing}
                 onClick={() => {
+                  if (isProcessing) return
                   setImagePreviewUrl(null)
                   setActiveTab("history")
                 }}
@@ -322,19 +424,22 @@ export default function HomePage() {
                   activeTab === "history" && !imagePreviewUrl
                     ? "bg-emerald-600 text-white shadow-sm"
                     : "text-slate-300 hover:text-white"
-                }`}
+                } ${isProcessing ? "opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
               >
                 <History className="w-4 h-4" />
-                Riwayat & Laporan
+                Riwayat
               </button>
             </div>
 
             {/* Logout Admin Button */}
             <button
               type="button"
+              disabled={isProcessing}
               onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/30 text-red-400 font-bold text-xs border border-red-500/20 transition-all active:scale-95 cursor-pointer ml-1"
-              title="Keluar Admin"
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/10 text-red-400 font-bold text-xs border border-red-500/20 transition-all ml-1 ${
+                isProcessing ? "opacity-40 cursor-not-allowed pointer-events-none" : "hover:bg-red-500/20 active:bg-red-500/30 active:scale-95 cursor-pointer"
+              }`}
+              title={isProcessing ? "Sedang memproses scan..." : "Keluar Admin"}
             >
               <LogOut className="w-4 h-4" />
               <span className="hidden sm:inline">Keluar</span>
@@ -363,20 +468,18 @@ export default function HomePage() {
         ) : activeTab === "scan" ? (
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="text-center max-w-xl mx-auto space-y-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold border border-emerald-200">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Fast Server-Side AI Vision
-              </span>
               <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                Scan Struk & Surat Jalan
+                Scan Nota & Struk
               </h2>
-              <p className="text-xs sm:text-sm text-slate-500 font-medium">
-                Pilih foto nota dari galeri (1 atau banyak sekaligus untuk Mass Batch Upload) atau kamera HP/Tablet.
+              <p className="text-xs sm:text-sm text-slate-500 font-medium max-w-md mx-auto">
+                Unggah foto dari galeri atau kamera langsung.
               </p>
             </div>
 
             <ReceiptImageUpload
               onImageSelected={handleImageSelected}
               onBatchSelected={handleBatchSelected}
+              onCancelScan={handleCancelScan}
               isProcessing={isProcessing}
               ocrProgressStatus={ocrStatus}
               ocrProgressPercent={ocrPercent}
@@ -388,6 +491,7 @@ export default function HomePage() {
             <ReceiptHistoryDashboard
               onScanNewReceipt={() => setActiveTab("scan")}
               onEditReceipt={handleEditReceipt}
+              currentAdminUser={adminUser}
             />
           </div>
         )}
@@ -398,13 +502,15 @@ export default function HomePage() {
         <div className="fixed bottom-0 left-0 right-0 z-40 sm:hidden bg-slate-900 border-t border-slate-800 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] flex items-center justify-around shadow-2xl">
           <button
             type="button"
+            disabled={isProcessing}
             onClick={() => {
+              if (isProcessing) return
               setImagePreviewUrl(null)
               setActiveTab("scan")
             }}
             className={`flex flex-col items-center gap-1 py-1 px-4 rounded-xl text-xs font-bold transition-all ${
               activeTab === "scan" && !imagePreviewUrl ? "text-emerald-400 bg-slate-800" : "text-slate-400"
-            }`}
+            } ${isProcessing ? "opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
           >
             <Camera className="w-5 h-5" />
             Scan Nota
@@ -412,13 +518,15 @@ export default function HomePage() {
 
           <button
             type="button"
+            disabled={isProcessing}
             onClick={() => {
+              if (isProcessing) return
               setImagePreviewUrl(null)
               setActiveTab("history")
             }}
             className={`flex flex-col items-center gap-1 py-1 px-4 rounded-xl text-xs font-bold transition-all ${
               activeTab === "history" && !imagePreviewUrl ? "text-emerald-400 bg-slate-800" : "text-slate-400"
-            }`}
+            } ${isProcessing ? "opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
           >
             <History className="w-5 h-5" />
             Riwayat

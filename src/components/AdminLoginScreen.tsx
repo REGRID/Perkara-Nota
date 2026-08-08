@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState } from "react"
-import { ShieldCheck, Lock, User, Eye, EyeOff, Camera, ArrowRight, AlertCircle, Loader2 } from "lucide-react"
+import { Lock, User, Eye, EyeOff, Camera, ArrowRight, AlertCircle, Loader2 } from "lucide-react"
 
 interface AdminLoginScreenProps {
   onLoginSuccess: (token: string, username: string) => void
@@ -18,7 +18,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
     e.preventDefault()
 
     if (!username.trim() || !password.trim()) {
-      setErrorMessage("ID Admin dan Password harus diisi.")
+      setErrorMessage("ID dan Password harus diisi.")
       return
     }
 
@@ -38,7 +38,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
       const data = await res.json()
 
       if (!res.ok) {
-        throw new Error(data.error || "ID Admin atau Password salah.")
+        throw new Error(data.error || "ID atau Password salah.")
       }
 
       // Save token in localStorage for backup PWA authorization header
@@ -49,7 +49,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
 
       onLoginSuccess(data.token, data.user?.username || "admin")
     } catch (err: any) {
-      setErrorMessage(err.message || "Gagal masuk ke sistem admin.")
+      setErrorMessage(err.message || "Gagal masuk ke sistem.")
     } finally {
       setIsLoading(false)
     }
@@ -57,26 +57,23 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col justify-center items-center p-4 relative overflow-hidden font-sans selection:bg-emerald-500 selection:text-white">
-      {/* Dynamic Ambient Glow Background Blur Effect */}
+      {/* Ambient Glow Background Effect */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-10 right-10 w-72 h-72 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in zoom-in-95 duration-300">
         {/* Header Branding */}
-        <div className="text-center space-y-3">
+        <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-xl shadow-emerald-600/20 mb-1">
             <Camera className="w-8 h-8" />
           </div>
           <div>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 flex items-center justify-center gap-2">
-              Nota-Photo <span className="text-emerald-600">AI</span>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">
+              Nota-Photo
             </h1>
-            <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
-              Portal Otentikasi Akses Admin & Cloud System
+            <p className="text-xs sm:text-sm text-slate-500 font-semibold mt-1">
+              Pemindai & Pembukuan Nota
             </p>
-          </div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-slate-200 text-[11px] font-semibold text-slate-600 shadow-2xs">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Mode Terkunci • Akses Khusus Admin
           </div>
         </div>
 
@@ -90,10 +87,10 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Input ID Admin */}
+            {/* Input ID */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-emerald-600" /> ID Admin (Username)
+                <User className="w-3.5 h-3.5 text-emerald-600" /> ID
               </label>
               <div className="relative">
                 <input
@@ -101,7 +98,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Masukkan ID Admin..."
+                  placeholder="Masukkan ID..."
                   autoComplete="username"
                   className="w-full bg-slate-50 border border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-2xl px-4 py-3.5 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition-all outline-none"
                 />
@@ -111,7 +108,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
             {/* Input Password */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-emerald-600" /> Password Admin
+                <Lock className="w-3.5 h-3.5 text-emerald-600" /> Password
               </label>
               <div className="relative">
                 <input
@@ -119,7 +116,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Masukkan Password Admin..."
+                  placeholder="Masukkan Password..."
                   autoComplete="current-password"
                   className="w-full bg-slate-50 border border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-2xl pl-4 pr-11 py-3.5 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition-all outline-none"
                 />
@@ -143,22 +140,16 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
               {isLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Memverifikasi Akses...</span>
+                  <span>Memverifikasi...</span>
                 </>
               ) : (
                 <>
-                  <span>Masuk ke Aplikasi</span>
+                  <span>Masuk</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
             </button>
           </form>
-        </div>
-
-        {/* Footer info */}
-        <div className="text-center text-[11px] text-slate-400 font-medium space-y-1">
-          <p>© {new Date().getFullYear()} Nota-Photo AI Cloud Scanner. All rights reserved.</p>
-          <p className="text-[10px] text-slate-400">Sistem Autentikasi Admin Terproteksi untuk Deployment Production.</p>
         </div>
       </div>
     </div>

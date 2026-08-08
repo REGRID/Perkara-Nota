@@ -18,8 +18,11 @@ import {
   ShieldCheck,
   Zap,
   Layers,
+  Maximize2,
+  X,
 } from "lucide-react"
 import { rotateImageBase64, compressImageBase64 } from "@/lib/ocr"
+import { ImageInteractiveLightbox } from "@/components/ImageInteractiveLightbox"
 
 export interface BatchFileItem {
   file: File
@@ -29,6 +32,7 @@ export interface BatchFileItem {
 interface ReceiptImageUploadProps {
   onImageSelected: (file: File, base64: string) => void
   onBatchSelected?: (batch: BatchFileItem[]) => void
+  onCancelScan?: () => void
   isProcessing: boolean
   ocrProgressStatus?: string
   ocrProgressPercent?: number
@@ -38,6 +42,7 @@ interface ReceiptImageUploadProps {
 export function ReceiptImageUpload({
   onImageSelected,
   onBatchSelected,
+  onCancelScan,
   isProcessing,
   ocrProgressStatus,
   ocrProgressPercent = 0,
@@ -53,6 +58,14 @@ export function ReceiptImageUpload({
   const [rotationDegrees, setRotationDegrees] = useState(0)
   const [timerSeconds, setTimerSeconds] = useState(0)
   const [isCompressing, setIsCompressing] = useState(false)
+  const [showLightbox, setShowLightbox] = useState(false)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+
+  useEffect(() => {
+    if (!isProcessing) {
+      setShowCancelConfirm(false)
+    }
+  }, [isProcessing])
 
   // Realtime Quota status state
   const [quotaInfo, setQuotaInfo] = useState<{
@@ -188,41 +201,16 @@ export function ReceiptImageUpload({
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-4">
-      {/* Realtime Quota Counter Badge */}
-      <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-2xl border border-slate-200 shadow-2xs text-xs">
-        <div className="flex items-center gap-2 font-semibold text-slate-700">
-          <ShieldCheck className="w-4 h-4 text-emerald-600" />
-          <span>Keamanan AI Gemini Cloud Server-Side</span>
-        </div>
-
-        <div className="flex items-center gap-1.5 font-bold">
-          {quotaInfo ? (
-            <span
-              className={`px-3 py-1 rounded-full border text-[11px] flex items-center gap-1.5 font-mono ${
-                isQuotaReached
-                  ? "bg-red-100 text-red-800 border-red-200"
-                  : "bg-emerald-100 text-emerald-800 border-emerald-200"
-              }`}
-            >
-              <Zap className="w-3 h-3 fill-current" />
-              Sisa Kuota Scan Realtime: {quotaInfo.remaining} / {quotaInfo.dailyLimit}
-            </span>
-          ) : (
-            <span className="text-slate-400 font-mono">Memuat Kuota Realtime...</span>
-          )}
-        </div>
-      </div>
-
       {/* Quota Limit Warning Toast / Alert */}
       {isQuotaReached && (
         <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-900 shadow-md space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center gap-2 font-black text-sm text-amber-800">
+          <div className="flex items-center gap-2 font-bold text-sm text-amber-800">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-            <span>Batas Kuota Scan Nota Tercapai (Status 429)</span>
+            <span>Kuota Scan Harian Habis</span>
           </div>
           <p className="text-xs text-amber-800 font-medium leading-relaxed">
             {quotaError ||
-              "Batas harian pemindaian nota (20 scan/hari) atau kuota Google Cloud telah tercapai. Tombol scan dinonaktifkan sementara untuk mencegah spam."}
+              "Batas 20 scan per hari telah tercapai. Silakan mencoba kembali besok."}
           </p>
         </div>
       )}
@@ -273,12 +261,12 @@ export function ReceiptImageUpload({
           /* WAITING & PROCESSING SCREEN */
           <div className="flex flex-col items-center justify-center py-4 space-y-5 animate-in fade-in zoom-in-95 duration-300">
             {selectedBase64 && (
-              <div className="relative w-32 h-44 rounded-2xl bg-slate-900 overflow-hidden shadow-xl border-2 border-emerald-500/50 flex items-center justify-center">
+              <div className="relative w-40 h-40 rounded-2xl bg-slate-900 overflow-hidden shadow-xl border-2 border-emerald-500/50 flex items-center justify-center">
                 {/* eslint-disable-next-html-element */}
                 <img
                   src={selectedBase64}
                   alt="Nota Preview"
-                  className="w-full h-full object-cover opacity-85 transition-transform duration-300"
+                  className="w-full h-full object-contain opacity-85 transition-transform duration-300"
                   style={{ transform: `rotate(${rotationDegrees}deg)` }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
@@ -292,36 +280,36 @@ export function ReceiptImageUpload({
 
             <div className="space-y-2 text-center max-w-sm">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-200">
-                <Clock className="w-3.5 h-3.5 text-emerald-600 animate-spin" /> Waktu Memproses: {timerSeconds}s
+                <Clock className="w-3.5 h-3.5 text-emerald-600 animate-spin" /> Memproses: {timerSeconds}s
               </div>
               <h3 className="font-extrabold text-slate-900 text-lg sm:text-xl">
-                Menganalisis Visual Struk dengan Gemini Cloud...
+                Menganalisis Nota...
               </h3>
               <p className="text-xs sm:text-sm text-slate-500 leading-relaxed font-medium">
-                {ocrProgressStatus || "Memverifikasi gambar via Server-Side Google Cloud API..."}
+                {ocrProgressStatus || "Membaca data nota..."}
               </p>
             </div>
 
             <div className="w-full max-w-sm bg-slate-50 rounded-2xl border border-slate-200 p-3 space-y-2 text-left text-xs">
               <div className="flex items-center justify-between font-semibold text-slate-700">
                 <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" /> 1. Kompresi & Sanitasi Payload
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" /> 1. Optimasi Foto
                 </span>
                 <span className="text-emerald-600 font-bold">Selesai</span>
               </div>
 
               <div className="flex items-center justify-between font-semibold text-slate-700">
                 <span className="flex items-center gap-1.5">
-                  <Loader2 className="w-4 h-4 text-blue-600 animate-spin" /> 2. Pemrosesan Multimodal Gemini API
+                  <Loader2 className="w-4 h-4 text-blue-600 animate-spin" /> 2. Ekstraksi Data
                 </span>
                 <span className="text-blue-600 font-bold">
-                  {ocrProgressPercent > 0 ? `${Math.round(ocrProgressPercent * 100)}%` : "Server Process..."}
+                  {ocrProgressPercent > 0 ? `${Math.round(ocrProgressPercent * 100)}%` : "Proses..."}
                 </span>
               </div>
 
               <div className="flex items-center justify-between font-semibold text-slate-500">
                 <span className="flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-amber-500" /> 3. Validasi JSON & Penyiapan Form ACC
+                  <Sparkles className="w-4 h-4 text-amber-500" /> 3. Menyiapkan Form
                 </span>
                 <span className="text-slate-400 font-medium">Auto...</span>
               </div>
@@ -333,6 +321,48 @@ export function ReceiptImageUpload({
                 style={{ width: `${Math.max(Math.round(ocrProgressPercent * 100), 30)}%` }}
               />
             </div>
+
+            {/* Cancel Scan Action Button with Verification */}
+            {onCancelScan && (
+              <div className="pt-2">
+                {!showCancelConfirm ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowCancelConfirm(true)}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-red-50 hover:text-red-600 active:bg-red-100 text-slate-500 font-bold text-xs border border-slate-200 hover:border-red-200 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer shadow-2xs"
+                    title="Batalkan proses scan nota"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    Batalkan
+                  </button>
+                ) : (
+                  <div className="bg-red-50/90 border border-red-200 rounded-2xl p-3 text-center space-y-2 animate-in fade-in zoom-in-95 duration-150 max-w-xs mx-auto shadow-sm">
+                    <p className="text-xs font-bold text-red-800">
+                      Yakin batalkan pemindaian?
+                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCancelConfirm(false)
+                          onCancelScan()
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs transition-all shadow-xs active:scale-95 cursor-pointer"
+                      >
+                        Ya, Batalkan
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowCancelConfirm(false)}
+                        className="px-3.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs border border-slate-300 transition-all active:scale-95 cursor-pointer"
+                      >
+                        Tidak
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : selectedBase64 ? (
           /* PREVIEW & ROTATION SCREEN */
@@ -340,10 +370,10 @@ export function ReceiptImageUpload({
             {selectedFiles.length > 1 && (
               <div className="w-full max-w-md bg-slate-900 text-white p-3.5 rounded-2xl space-y-2 border border-slate-800 shadow-md">
                 <div className="flex items-center justify-between text-xs font-bold px-1">
-                  <span className="flex items-center gap-1.5 text-emerald-400 font-extrabold">
-                    <Layers className="w-4 h-4" /> Batch Mass Upload ({selectedFiles.length} Nota Terpilih)
+                  <span className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                    <Layers className="w-4 h-4" /> Batch ({selectedFiles.length} Nota)
                   </span>
-                  <span className="text-slate-300">Preview Nota #{currentFileIndex + 1}</span>
+                  <span className="text-slate-300">Nota #{currentFileIndex + 1}</span>
                 </div>
                 <div className="flex items-center gap-2 overflow-x-auto pb-1">
                   {selectedFiles.map((f, idx) => (
@@ -366,30 +396,48 @@ export function ReceiptImageUpload({
 
             <div className="space-y-1">
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-bold border border-amber-200">
-                Periksa Orientasi Foto
+                Orientasi Foto
               </span>
               <h3 className="text-lg font-extrabold text-slate-900">
-                Pastikan Tulisan Nota Sudah Tegak (Portrait)
+                Pastikan Gambar Tegak
               </h3>
               <p className="text-xs text-slate-500">
-                Putar gambar jika miring sebelum diproses oleh server Gemini Cloud AI.
+                Putar foto jika miring agar terbaca sempurna.
               </p>
             </div>
 
-            <div className="relative w-48 h-60 rounded-2xl bg-slate-900 overflow-hidden shadow-2xl border-2 border-slate-800 flex items-center justify-center p-2">
+            <div
+              onClick={() => {
+                if (!isCompressing && selectedBase64) setShowLightbox(true)
+              }}
+              className="relative w-56 h-56 sm:w-64 sm:h-64 rounded-2xl bg-slate-900 overflow-hidden shadow-2xl border-2 border-slate-800 flex items-center justify-center p-2 cursor-pointer group hover:border-emerald-500/80 transition-all"
+              title="Klik untuk memperbesar foto"
+            >
               {isCompressing ? (
                 <div className="flex flex-col items-center justify-center space-y-2 text-emerald-400">
                   <Loader2 className="w-8 h-8 animate-spin" />
                   <span className="text-xs font-bold">Mengompres Foto...</span>
                 </div>
               ) : (
-                /* eslint-disable-next-html-element */
-                <img
-                  src={selectedBase64}
-                  alt="Nota Selected"
-                  className="max-w-full max-h-full object-contain transition-transform duration-300"
-                  style={{ transform: `rotate(${rotationDegrees}deg)` }}
-                />
+                <>
+                  {/* eslint-disable-next-html-element */}
+                  <img
+                    src={selectedBase64}
+                    alt="Nota Selected"
+                    className="max-w-full max-h-full object-contain transition-transform duration-300 group-hover:scale-105"
+                    style={{ transform: `rotate(${rotationDegrees}deg)` }}
+                  />
+
+                  {/* Hover Overlay Hint */}
+                  <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 text-white pointer-events-none">
+                    <div className="w-9 h-9 rounded-full bg-emerald-500/90 flex items-center justify-center shadow-lg">
+                      <Maximize2 className="w-4 h-4 text-white" />
+                    </div>
+                    <span className="text-[11px] font-bold bg-slate-900/90 px-2.5 py-1 rounded-full border border-slate-700">
+                      Klik untuk perbesar
+                    </span>
+                  </div>
+                </>
               )}
             </div>
 
@@ -425,7 +473,7 @@ export function ReceiptImageUpload({
                 }}
                 className="w-full sm:w-auto px-4 py-3 rounded-xl border border-slate-300 text-slate-600 font-bold text-xs hover:bg-slate-100 transition-colors"
               >
-                Ganti Foto
+                Ganti
               </button>
 
               <button
@@ -440,14 +488,14 @@ export function ReceiptImageUpload({
               >
                 {isQuotaReached ? (
                   <>
-                    <Lock className="w-4 h-4" /> Kuota Terpakai Habis (429)
+                    <Lock className="w-4 h-4" /> Kuota Habis
                   </>
                 ) : (
                   <>
                     <Play className="w-4 h-4 fill-white" />
                     {selectedFiles.length > 1
-                      ? `Mulai Batch Scan (${selectedFiles.length} Nota)`
-                      : "Mulai Scan Nota Sekarang"}
+                      ? `Scan Batch (${selectedFiles.length})`
+                      : "Scan Nota"}
                   </>
                 )}
               </button>
@@ -474,12 +522,12 @@ export function ReceiptImageUpload({
 
               <div className="space-y-1">
                 <h3 className="text-lg sm:text-xl font-extrabold text-slate-900">
-                  {isQuotaReached ? "Batas Pemindaian Harian Tercapai" : "Upload Nota Belanja / Surat Jalan"}
+                  {isQuotaReached ? "Kuota Scan Harian Habis" : "Unggah Nota"}
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
                   {isQuotaReached
-                    ? "Kuota 20 scan per hari telah digunakan. Silakan tunggu hingga kuota diperbarui esok hari."
-                    : "Pilih 1 atau beberapa foto sekaligus (Batch Upload) dari Galeri HP/Tablet atau Kamera."}
+                    ? "Batas 20 scan per hari telah tercapai. Coba lagi besok."
+                    : "Pilih foto dari galeri atau ambil foto dari kamera."}
                 </p>
               </div>
             </label>
@@ -489,43 +537,48 @@ export function ReceiptImageUpload({
                 type="button"
                 disabled={isQuotaReached || isProcessing}
                 onClick={() => triggerFileInput("gallery-file-input")}
-                className={`inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-extrabold text-sm transition-all shadow-md active:scale-95 ${
+                className={`inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-bold text-sm transition-all shadow-md active:scale-95 ${
                   isQuotaReached || isProcessing
                     ? "bg-slate-300 text-slate-500 cursor-not-allowed shadow-none"
                     : "bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white cursor-pointer"
                 }`}
               >
                 <ImageIcon className="w-4 h-4 text-emerald-400" />
-                Pilih Foto Galeri (Batch Multi-File)
+                Buka Galeri
               </button>
 
               <button
                 type="button"
                 disabled={isQuotaReached || isProcessing}
                 onClick={() => triggerFileInput("camera-file-input")}
-                className={`inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-extrabold text-sm transition-all shadow-md active:scale-95 ${
+                className={`inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-bold text-sm transition-all shadow-md active:scale-95 ${
                   isQuotaReached || isProcessing
                     ? "bg-slate-300 text-slate-500 cursor-not-allowed shadow-none"
                     : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white cursor-pointer"
                 }`}
               >
                 <Camera className="w-4 h-4 text-white" />
-                Foto Kamera Langsung
+                Ambil Foto
               </button>
             </div>
 
-            <div className="flex items-center justify-center gap-3 pt-3 text-[11px] text-slate-400 font-semibold">
+            <div className="flex items-center justify-center gap-3 pt-3 text-[11px] text-slate-400 font-medium">
               <span className="flex items-center gap-1">
-                <Layers className="w-3.5 h-3.5 text-emerald-600" /> Auto Compressed Payload
-              </span>
-              <span>•</span>
-              <span className="flex items-center gap-1">
-                <FileText className="w-3.5 h-3.5 text-blue-500" /> Fast & Resilient Vision
+                <Layers className="w-3.5 h-3.5 text-emerald-600" /> Mendukung upload banyak foto sekaligus
               </span>
             </div>
           </div>
         )}
       </div>
+
+      {/* Fullscreen Interactive Lightbox Modal */}
+      {showLightbox && selectedBase64 && (
+        <ImageInteractiveLightbox
+          imageUrl={selectedBase64}
+          altText="Preview Detail Nota"
+          onClose={() => setShowLightbox(false)}
+        />
+      )}
     </div>
   )
 }

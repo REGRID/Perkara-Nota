@@ -17,10 +17,11 @@ model Receipt {
   totalAmount   Float         @default(0)
   paymentMethod String        @default("Cash") // Cash, Transfer Bank, QRIS, Kredit / Debit, Tempo / Hutang
   paymentStatus String        @default("Lunas") // Lunas, Belum Lunas / Tempo
-  note          String?       @db.Text
+  note          String?           @db.Text
   items         ReceiptItem[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  pendingApprovals PendingApproval[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   @@map("receipts")
 }
@@ -81,4 +82,20 @@ model CustomCategory {
   createdAt DateTime @default(now())
 
   @@map("custom_categories")
+}
+
+model PendingApproval {
+  id              String   @id @default(uuid())
+  receiptId       String?
+  receipt         Receipt? @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  actionType      String   // DELETE, EDIT, SETTLE, BULK_DELETE
+  requestedBy     String   // Admin username (admin1 / admin2)
+  approvedBy      String?  // Admin username
+  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  payload         String   @db.Text // JSON string containing proposed data/changes
+  rejectionReason String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("pending_approvals")
 }

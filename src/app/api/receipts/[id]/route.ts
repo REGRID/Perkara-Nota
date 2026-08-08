@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { recordVerifiedReceiptLearning } from "@/lib/selfLearningEngine"
+import { getAdminUserFromRequest } from "@/lib/authHelper"
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -24,8 +24,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
+    const adminUser = getAdminUserFromRequest(req)
     const body = await req.json()
-    const { merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, items } = body
+    const { date, items } = body
 
     if (!date) {
       return NextResponse.json({ error: "Tanggal nota wajib diisi" }, { status: 400 })
@@ -35,66 +36,51 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "Nota harus memiliki minimal 1 item produk" }, { status: 400 })
     }
 
-    const isPersonal =
-      paymentMethod === "Dana Pribadi Owner" || paymentMethod === "Talangan Karyawan"
-    const cleanedNote = note
-      ? isPersonal
-        ? note
-        : note.replace(/\[Dibayar oleh: [^\]]+\]\s*/g, "").trim() || null
-      : null
-
-    await db.receiptItem.deleteMany({
-      where: { receiptId: id },
-    })
-
-    const updatedReceipt = await db.receipt.update({
-      where: { id },
+    // Dual-Admin Control: Create Pending Approval for EDIT action
+    const approval = await (db as any).pendingApproval.create({
       data: {
-        merchantName: merchantName || "Nota / Toko",
-        date,
-        imageUrl: imageUrl || undefined,
-        subtotal: Number(subtotal) || 0,
-        taxAmount: Number(taxAmount) || 0,
-        totalAmount: Number(totalAmount) || 0,
-        paymentMethod: paymentMethod || "Cash",
-        paymentStatus: paymentStatus || "Lunas",
-        note: cleanedNote,
-        items: {
-          create: items.map((it: any) => ({
-            name: it.name || "Item",
-            category: it.category || "Lain-lain",
-            subCategory: it.subCategory || "Umum",
-            price: Number(it.price) || 0,
-            quantity: Number(it.quantity) || 1,
-          })),
-        },
-      },
-      include: {
-        items: true,
+        receiptId: id,
+        actionType: "EDIT",
+        requestedBy: adminUser,
+        status: "PENDING",
+        payload: JSON.stringify(body),
       },
     })
 
-    // Continuous Self-Learning Engine: Record verified user updates
-    await recordVerifiedReceiptLearning(merchantName, items)
-
-    return NextResponse.json(updatedReceipt)
+    return NextResponse.json({
+      pendingApproval: true,
+      message: `Permintaan edit nota berhasil diajukan oleh ${adminUser}. Menunggu verifikasi dari admin lain.`,
+      approval,
+    })
   } catch (error: any) {
     console.error("PUT Receipt Error:", error)
-    return NextResponse.json({ error: error.message || "Gagal memperbarui nota" }, { status: 500 })
+    return NextResponse.json({ error: error.message || "Gagal mengajukan edit nota" }, { status: 500 })
   }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
+    const adminUser = getAdminUserFromRequest(req)
 
-    await db.receipt.delete({
-      where: { id },
+    // Dual-Admin Control: Create Pending Approval for DELETE action
+    const approval = await (db as any).pendingApproval.create({
+      data: {
+        receiptId: id,
+        actionType: "DELETE",
+        requestedBy: adminUser,
+        status: "PENDING",
+        payload: JSON.stringify({ id }),
+      },
     })
 
-    return NextResponse.json({ success: true, message: "Nota berhasil dihapus" })
+    return NextResponse.json({
+      pendingApproval: true,
+      message: `Permintaan hapus nota berhasil diajukan oleh ${adminUser}. Menunggu verifikasi dari admin lain.`,
+      approval,
+    })
   } catch (error: any) {
     console.error("DELETE Receipt Error:", error)
-    return NextResponse.json({ error: "Gagal menghapus nota" }, { status: 500 })
+    return NextResponse.json({ error: "Gagal mengajukan penghapusan nota" }, { status: 500 })
   }
 }

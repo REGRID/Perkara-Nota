@@ -42,6 +42,7 @@ import {
   Square,
   Filter,
   User,
+  ShieldCheck,
 } from "lucide-react"
 import {
   ResponsiveContainer,
@@ -116,15 +117,22 @@ const GRAPH_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#0
 interface ReceiptHistoryDashboardProps {
   onScanNewReceipt: () => void
   onEditReceipt?: (receipt: ReceiptData) => void
+  currentAdminUser?: string
 }
 
-export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: ReceiptHistoryDashboardProps) {
+export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, currentAdminUser = "admin" }: ReceiptHistoryDashboardProps) {
   const [allReceipts, setAllReceipts] = useState<ReceiptData[]>([])
   const [hierarchy, setHierarchy] = useState<HierarchyGroup[]>([])
   const [isInitialLoading, setIsInitialLoading] = useState(true)
 
+  // Dual-Admin Pending Approvals State
+  const [pendingApprovals, setPendingApprovals] = useState<any[]>([])
+  const [showApprovalModal, setShowApprovalModal] = useState(false)
+  const [isProcessingApproval, setIsProcessingApproval] = useState(false)
+  const [rejectionReason, setRejectionReason] = useState("")
+
   // Toggle Analytics Charts display & Chart View Type
-  const [showCharts, setShowCharts] = useState(true)
+  const [showCharts, setShowCharts] = useState(false)
   const [chartMode, setChartMode] = useState<"category" | "daily" | "topSubCategories">("category")
 
   // Item Breakdown Drill-Down Modal State
@@ -149,6 +157,9 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
 
   // Rekening Koran Print Modal State
   const [showStatementPrintModal, setShowStatementPrintModal] = useState(false)
+
+  // Kelola Data & Export Combined Modal State
+  const [showDataOptionsModal, setShowDataOptionsModal] = useState(false)
 
   // Selected Detail Modal State
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptData | null>(null)
@@ -261,9 +272,91 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
     }
   }
 
+  // Fetch Pending Approvals for Dual-Admin Verification
+  const fetchPendingApprovals = async () => {
+    try {
+      const res = await fetch("/api/approvals?status=PENDING")
+      if (res.ok) {
+        const data = await res.json()
+        setPendingApprovals(data)
+      }
+    } catch (err) {
+      console.error("Gagal mengambil daftar pending approval:", err)
+    }
+  }
+
+  const handleApproveRequest = async (approvalId: string) => {
+    setIsProcessingApproval(true)
+    try {
+      const res = await fetch(`/api/approvals/${approvalId}/approve`, {
+        method: "POST",
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || "Gagal menyetujui perubahan.")
+      } else {
+        alert(data.message || "Perubahan berhasil diverifikasi dan diterapkan.")
+        await fetchPendingApprovals()
+        await fetchAllReceipts(true)
+      }
+    } catch (err: any) {
+      alert(err.message || "Terjadi kesalahan saat menyetujui verifikasi.")
+    } finally {
+      setIsProcessingApproval(false)
+    }
+  }
+
+  const handleRejectRequest = async (approvalId: string) => {
+    setIsProcessingApproval(true)
+    try {
+      const res = await fetch(`/api/approvals/${approvalId}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: rejectionReason }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || "Gagal menolak perubahan.")
+      } else {
+        alert(data.message || "Permintaan perubahan telah ditolak.")
+        setRejectionReason("")
+        await fetchPendingApprovals()
+      }
+    } catch (err: any) {
+      alert(err.message || "Terjadi kesalahan saat menolak verifikasi.")
+    } finally {
+      setIsProcessingApproval(false)
+    }
+  }
+
+  const handleSettleReceiptRequest = async (receipt: ReceiptData) => {
+    if (!confirm(`Ajukan pelunasan untuk Nota ${receipt.merchantName} (Rp ${receipt.totalAmount.toLocaleString("id-ID")})?`)) return
+    try {
+      const res = await fetch("/api/approvals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          receiptId: receipt.id,
+          actionType: "SETTLE",
+          payload: { id: receipt.id, paymentStatus: "Lunas" },
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || "Gagal mengajukan pelunasan nota.")
+      } else {
+        alert(data.message || "Permintaan pelunasan nota berhasil diajukan. Menunggu verifikasi dari admin lain.")
+        await fetchPendingApprovals()
+      }
+    } catch (err: any) {
+      alert(err.message || "Terjadi kesalahan saat mengajukan pelunasan.")
+    }
+  }
+
   useEffect(() => {
     fetchCategories()
     fetchAllReceipts(false)
+    fetchPendingApprovals()
   }, [])
 
   // Parent Category Tabs List strictly built from database hierarchy
@@ -564,14 +657,20 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
         method: "DELETE",
       })
 
+      const data = await res.json()
       if (res.ok) {
-        setAllReceipts((prev) => prev.filter((r) => r.id !== deletingReceipt.id))
+        if (data.pendingApproval) {
+          alert(data.message || "Permintaan hapus nota telah diajukan. Menunggu verifikasi dari admin lain.")
+          await fetchPendingApprovals()
+        } else {
+          setAllReceipts((prev) => prev.filter((r) => r.id !== deletingReceipt.id))
+        }
         if (selectedReceipt?.id === deletingReceipt.id) {
           setSelectedReceipt(null)
         }
         setDeletingReceipt(null)
       } else {
-        alert("Gagal menghapus nota")
+        alert(data.error || "Gagal menghapus nota")
       }
     } catch (err) {
       alert("Gagal menghubungkan ke server untuk menghapus nota")
@@ -1000,22 +1099,33 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
           </div>
           <div>
             <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
-              Riwayat & Laporan Pembukuan
+              Riwayat Nota
             </h2>
             <p className="text-[11px] text-slate-500 font-semibold">
-              Rekap pengeluaran & ekspor laporan.
+              Rekapitulasi pengeluaran & laporan.
             </p>
           </div>
         </div>
 
         {/* Compact Actions Row */}
         <div className="flex items-center gap-1.5 flex-wrap md:flex-nowrap shrink-0">
+          {/* Dual-Admin Approval Requests Button */}
           <button
             type="button"
-            onClick={onScanNewReceipt}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs transition-all shadow-xs shrink-0"
+            onClick={() => setShowApprovalModal(true)}
+            className={`relative inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-extrabold text-xs transition-all border shadow-2xs active:scale-95 shrink-0 ${
+              pendingApprovals.length > 0
+                ? "bg-amber-500 text-slate-950 border-amber-600 animate-pulse font-black"
+                : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
+            }`}
+            title="Verifikasi Persetujuan Admin (Empat Mata)"
           >
-            <Sparkles className="w-3.5 h-3.5 text-emerald-300" /> + Scan Struk
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Persetujuan
+            {pendingApprovals.length > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 bg-red-600 text-white rounded-full text-[10px] font-black leading-none">
+                {pendingApprovals.length}
+              </span>
+            )}
           </button>
 
           <button
@@ -1030,32 +1140,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
             <BarChart3 className="w-3.5 h-3.5 text-emerald-400" /> Grafik
           </button>
 
+          {/* COMBINED DATA & EXPORT BUTTON */}
           <button
             type="button"
-            onClick={handleExportJsonBackup}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold text-xs transition-all border border-blue-200 shrink-0"
-            title="Backup Database JSON"
+            onClick={() => setShowDataOptionsModal(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs transition-all border border-slate-200 shadow-2xs active:scale-95 shrink-0 cursor-pointer"
+            title="Opsi Backup, Restore, dan Ekspor Excel"
           >
-            <Database className="w-3.5 h-3.5 text-blue-600" /> Backup
-          </button>
-
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isBackupRestoring}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs transition-all border border-amber-200 disabled:opacity-50 shrink-0"
-            title="Restore Database JSON"
-          >
-            {isBackupRestoring ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" /> : <UploadCloud className="w-3.5 h-3.5 text-amber-600" />}
-            Restore
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setExportConfirmFormat("xlsx")}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs transition-all border border-emerald-200 shrink-0"
-          >
-            <Download className="w-3.5 h-3.5 text-emerald-600" /> Excel
+            <Database className="w-3.5 h-3.5 text-emerald-600" /> Kelola Data
           </button>
 
           {/* PRINT OPTION DIRECTLY TRIGGERS BANK MANDIRI STYLE REKENING KORAN MODAL */}
@@ -1087,7 +1179,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
           </p>
           <p className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            {isSubCategoryActive ? `Total belanja ${selectedSubCategory}` : `Dari ${filteredReceipts.length} nota`}
+            {isSubCategoryActive ? selectedSubCategory : `${filteredReceipts.length} nota`}
           </p>
         </div>
 
@@ -1103,7 +1195,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
             {filteredReceipts.length} Struk
           </p>
           <p className="text-[11px] font-bold text-slate-500">
-            Rata-rata: Rp {averageSpendPerReceipt.toLocaleString("id-ID")}/nota
+            Rata-rata Rp {averageSpendPerReceipt.toLocaleString("id-ID")}
           </p>
         </div>
 
@@ -1118,7 +1210,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
           <p className="text-2xl sm:text-3xl font-black text-slate-900 transition-all duration-200">
             {totalItemsCount} Item
           </p>
-          <p className="text-[11px] font-bold text-purple-700">Rincian produk ter-kategori</p>
+          <p className="text-[11px] font-bold text-purple-700">Produk terdata</p>
         </div>
 
         {/* Card 4: Kategori Dominan */}
@@ -1133,7 +1225,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
             {dominantCategoryName}
           </p>
           <p className="text-[11px] font-bold text-amber-700 font-mono">
-            {maxSpend > 0 ? `Rp ${maxSpend.toLocaleString("id-ID")}` : "Belum ada data"}
+            {maxSpend > 0 ? `Rp ${maxSpend.toLocaleString("id-ID")}` : "-"}
           </p>
         </div>
       </div>
@@ -1393,7 +1485,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari toko, nama barang, atau metode bayar..."
+              placeholder="Cari toko, barang, atau metode bayar..."
               className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all bg-slate-50/50"
             />
             {searchQuery && (
@@ -1410,7 +1502,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
           {/* DATE RANGE FILTER DROPDOWN */}
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
-              <Calendar className="w-4 h-4 text-blue-600" /> PERIODE:
+              <Calendar className="w-4 h-4 text-emerald-600" /> Periode:
             </span>
 
             <div className="relative inline-block">
@@ -1452,7 +1544,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
         <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3.5">
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider mr-1 shrink-0 flex items-center gap-1">
-              <Layers className="w-3.5 h-3.5 text-emerald-600" /> KATEGORI:
+              <Layers className="w-3.5 h-3.5 text-emerald-600" /> Kategori:
             </span>
             {parentTabs.map((cat) => (
               <button
@@ -1600,7 +1692,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
           <div className="flex items-center gap-2">
             <h3 className="font-extrabold text-slate-900 text-base sm:text-lg flex items-center gap-2">
               <ReceiptIcon className="w-5 h-5 text-emerald-600" />
-              Daftar Riwayat Struk Belanja ({filteredReceipts.length})
+              Daftar Nota ({filteredReceipts.length})
             </h3>
             {selectedReceiptIds.length > 0 && (
               <span className="text-xs font-extrabold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
@@ -1657,7 +1749,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
         {isInitialLoading ? (
           <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center space-y-3">
             <RefreshCw className="w-8 h-8 animate-spin text-emerald-600 mx-auto" />
-            <p className="text-xs font-semibold text-slate-500">Memuat data riwayat nota...</p>
+            <p className="text-xs font-semibold text-slate-500">Memuat data...</p>
           </div>
         ) : filteredReceipts.length === 0 ? (
           /* EMPTY STATE */
@@ -2763,6 +2855,252 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt }: Rec
           altText="Foto Struk Original"
           onClose={() => setLightboxImageUrl(null)}
         />
+      )}
+
+      {/* DUAL-ADMIN APPROVAL MODAL */}
+      {showApprovalModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white text-slate-900 w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black shrink-0">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base flex items-center gap-2">
+                    Verifikasi Persetujuan Admin <span className="text-emerald-400 text-xs font-mono font-normal">(Dual Control)</span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Empat Mata: Persetujuan Silang Tindakan Sensitif (Hapus, Edit, Pelunasan)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowApprovalModal(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-4 flex-1">
+              <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-2xl text-xs text-amber-900 flex items-start gap-2.5 font-medium">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Setiap tindakan Hapus, Edit, atau Pelunasan Nota memerlukan persetujuan dari <strong>Admin lain</strong>. Anda sedang aktif sebagai <strong>{currentAdminUser}</strong>.
+                </span>
+              </div>
+
+              {pendingApprovals.length === 0 ? (
+                <div className="text-center py-12 space-y-3">
+                  <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
+                  <h4 className="font-extrabold text-slate-800 text-sm sm:text-base">Tidak Ada Permintaan Pending</h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    Semua tindakan Hapus, Edit, dan Pelunasan Nota telah selesai atau tidak ada yang menunggu verifikasi.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {pendingApprovals.map((reqItem) => {
+                    const isSelfRequest = reqItem.requestedBy === currentAdminUser
+                    let payloadObj: any = {}
+                    try {
+                      payloadObj = JSON.parse(reqItem.payload || "{}")
+                    } catch {}
+
+                    return (
+                      <div
+                        key={reqItem.id}
+                        className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 shadow-2xs"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+                              reqItem.actionType === "DELETE" || reqItem.actionType === "BULK_DELETE"
+                                ? "bg-red-100 text-red-800 border border-red-200"
+                                : reqItem.actionType === "SETTLE"
+                                ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                : "bg-blue-100 text-blue-800 border border-blue-200"
+                            }`}
+                          >
+                            {reqItem.actionType === "DELETE" && "Permintaan Hapus Nota"}
+                            {reqItem.actionType === "BULK_DELETE" && `Permintaan Hapus Massal (${payloadObj.ids?.length || 0} Nota)`}
+                            {reqItem.actionType === "EDIT" && "Permintaan Edit Nota"}
+                            {reqItem.actionType === "SETTLE" && "Permintaan Pelunasan Nota"}
+                          </span>
+
+                          <span className="text-[11px] font-mono font-semibold text-slate-500">
+                            {new Date(reqItem.createdAt).toLocaleString("id-ID")}
+                          </span>
+                        </div>
+
+                        <div className="text-xs space-y-1 text-slate-700">
+                          <p className="font-bold flex items-center gap-1">
+                            <User className="w-3.5 h-3.5 text-emerald-600" />
+                            Diajukan oleh: <span className="font-extrabold text-slate-900">{reqItem.requestedBy}</span>
+                          </p>
+                          {reqItem.receipt && (
+                            <p className="text-slate-600">
+                              Target Nota: <strong className="text-slate-900">{reqItem.receipt.merchantName}</strong> ({reqItem.receipt.date}) — Rp {reqItem.receipt.totalAmount?.toLocaleString("id-ID")}
+                            </p>
+                          )}
+                          {reqItem.actionType === "EDIT" && payloadObj.merchantName && (
+                            <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-[11px] space-y-1 mt-1">
+                              <p className="font-extrabold text-slate-800">Usulan Perubahan Edit Data:</p>
+                              <p>Toko/Merchant: {payloadObj.merchantName}</p>
+                              <p>Total Nota Baru: Rp {Number(payloadObj.totalAmount || 0).toLocaleString("id-ID")}</p>
+                              <p>Jumlah Item Barang: {payloadObj.items?.length || 0} produk</p>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-200 flex items-center justify-end gap-2">
+                          {isSelfRequest ? (
+                            <span className="text-[11px] font-bold text-amber-700 bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200">
+                              Menunggu Verifikasi Admin Lain (Self-Approval Dilarang)
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                disabled={isProcessingApproval}
+                                onClick={() => handleRejectRequest(reqItem.id)}
+                                className="px-3.5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 font-extrabold text-xs transition-all disabled:opacity-50"
+                              >
+                                Tolak
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={isProcessingApproval}
+                                onClick={() => handleApproveRequest(reqItem.id)}
+                                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold text-xs transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+                              >
+                                {isProcessingApproval ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                                Setujui & Eksekusi
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* KELOLA DATA & EXPORT COMBINED MODAL */}
+      {showDataOptionsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">Kelola Data</h3>
+                  <p className="text-xs text-slate-500 font-medium">Pilih opsi kelola data atau laporan yang diinginkan</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDataOptionsModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Opsi 1: Export Excel */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDataOptionsModal(false)
+                  setExportConfirmFormat("xlsx")
+                }}
+                className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-emerald-50/80 hover:bg-emerald-100/80 border border-emerald-200 text-left transition-all group active:scale-[0.99] cursor-pointer"
+              >
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                  <Download className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-extrabold text-xs text-emerald-950 flex items-center gap-1.5">
+                    Ekspor Laporan ke Excel
+                    <span className="text-[10px] bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded-full font-mono">.xlsx</span>
+                  </h4>
+                  <p className="text-[11px] text-emerald-700/90 font-medium leading-relaxed mt-0.5">
+                    Unduh spreadsheet Excel lengkap sesuai filter yang aktif.
+                  </p>
+                </div>
+              </button>
+
+              {/* Opsi 2: Backup Data JSON */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDataOptionsModal(false)
+                  handleExportJsonBackup()
+                }}
+                className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-blue-50/80 hover:bg-blue-100/80 border border-blue-200 text-left transition-all group active:scale-[0.99] cursor-pointer"
+              >
+                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-extrabold text-xs text-blue-950 flex items-center gap-1.5">
+                    Download Backup Data
+                    <span className="text-[10px] bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full font-mono">.json</span>
+                  </h4>
+                  <p className="text-[11px] text-blue-700/90 font-medium leading-relaxed mt-0.5">
+                    Unduh cadangan basis data nota lengkap untuk pengamanan.
+                  </p>
+                </div>
+              </button>
+
+              {/* Opsi 3: Restore Data JSON */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDataOptionsModal(false)
+                  fileInputRef.current?.click()
+                }}
+                disabled={isBackupRestoring}
+                className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-amber-50/80 hover:bg-amber-100/80 border border-amber-200 text-left transition-all group active:scale-[0.99] cursor-pointer disabled:opacity-50"
+              >
+                <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                  {isBackupRestoring ? <RefreshCw className="w-5 h-5 animate-spin" /> : <UploadCloud className="w-5 h-5" />}
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-extrabold text-xs text-amber-950 flex items-center gap-1.5">
+                    Upload / Restore Data
+                    <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-mono">.json</span>
+                  </h4>
+                  <p className="text-[11px] text-amber-700/90 font-medium leading-relaxed mt-0.5">
+                    Unggah berkas cadangan JSON untuk memulihkan data nota.
+                  </p>
+                </div>
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDataOptionsModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

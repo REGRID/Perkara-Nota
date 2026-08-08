@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { checkRateLimit, incrementRateLimit, normalizeIp } from "@/lib/rateLimiter"
-import { getLearnedKnowledgeContext } from "@/lib/selfLearningEngine"
+import { getLearnedKnowledgeContext, matchItemWithLearnedMemory } from "@/lib/selfLearningEngine"
 import { db } from "@/lib/db"
 import { getOrSeedCategories } from "@/lib/categories"
 import { GoogleGenAI } from "@google/genai"
@@ -271,34 +271,42 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
     const validParentNames = officialHierarchyMap.map((h: any) => h.parentName)
     const defaultParent = validParentNames[0] || "Lain-lain"
 
-    // Strict Backend Enforcer: Ensure category & subCategory strictly exist in database lists
-    parsedJson.items = parsedJson.items.map((it) => {
-      const rawCat = (it.category || "").trim()
-      // Match parent category against official DB list
-      const matchedParentObj = officialHierarchyMap.find(
-        (h: any) =>
-          h.parentName.toLowerCase().trim() === rawCat.toLowerCase() ||
-          rawCat.toLowerCase().includes(h.parentName.toLowerCase()) ||
-          h.parentName.toLowerCase().includes(rawCat.toLowerCase())
-      )
+    // 6. Hybrid Auto-Matcher: Local Fast Similarity Engine + AI Semantic Reasoning
+    parsedJson.items = await Promise.all(
+      parsedJson.items.map(async (it) => {
+        const rawItemName = (it.name || "Item").trim()
 
-      const finalParentCategory = matchedParentObj ? matchedParentObj.parentName : defaultParent
-      const allowedSubs = matchedParentObj ? matchedParentObj.subNames : ["Umum"]
+        // Local Fuzzy Similarity Matcher (Checks token overlap & similarity against learned memory)
+        const localMatch = await matchItemWithLearnedMemory(rawItemName, categoryHierarchy)
 
-      const rawSub = (it.subCategory || "").trim()
-      const matchedSub = allowedSubs.find(
-        (s: string) => s.toLowerCase().trim() === rawSub.toLowerCase()
-      )
-      const finalSubCategory = matchedSub || "Umum"
+        let targetCat = localMatch ? localMatch.category : (it.category || "").trim()
+        let targetSub = localMatch ? localMatch.subCategory : (it.subCategory || "").trim()
 
-      return {
-        name: it.name || "Item",
-        category: finalParentCategory,
-        subCategory: finalSubCategory,
-        price: parseIndonesianPrice(String(it.price)),
-        quantity: Number(it.quantity) || 1,
-      }
-    })
+        // Match parent category strictly against official DB list (NEVER create new categories)
+        const matchedParentObj = officialHierarchyMap.find(
+          (h: any) =>
+            h.parentName.toLowerCase().trim() === targetCat.toLowerCase().trim() ||
+            targetCat.toLowerCase().trim().includes(h.parentName.toLowerCase().trim()) ||
+            h.parentName.toLowerCase().trim().includes(targetCat.toLowerCase().trim())
+        )
+
+        const finalParentCategory = matchedParentObj ? matchedParentObj.parentName : defaultParent
+        const allowedSubs = matchedParentObj ? matchedParentObj.subNames : ["Umum"]
+
+        const matchedSub = allowedSubs.find(
+          (s: string) => s.toLowerCase().trim() === targetSub.toLowerCase().trim()
+        )
+        const finalSubCategory = matchedSub || "Umum"
+
+        return {
+          name: rawItemName,
+          category: finalParentCategory,
+          subCategory: finalSubCategory,
+          price: parseIndonesianPrice(String(it.price)),
+          quantity: Number(it.quantity) || 1,
+        }
+      })
+    )
 
     parsedJson.subtotal = parseIndonesianPrice(String(parsedJson.subtotal))
     parsedJson.taxAmount = parseIndonesianPrice(String(parsedJson.taxAmount))

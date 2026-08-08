@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { recordVerifiedReceiptLearning } from "@/lib/selfLearningEngine"
+import { getAdminUserFromRequest } from "@/lib/authHelper"
 
 export async function GET(req: NextRequest) {
   try {
@@ -171,24 +172,28 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const adminUser = getAdminUserFromRequest(req)
     const { ids } = await req.json()
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ error: "ID nota yang akan dihapus tidak valid" }, { status: 400 })
     }
 
-    const deleted = await db.receipt.deleteMany({
-      where: {
-        id: { in: ids },
+    const approval = await (db as any).pendingApproval.create({
+      data: {
+        actionType: "BULK_DELETE",
+        requestedBy: adminUser,
+        status: "PENDING",
+        payload: JSON.stringify({ ids }),
       },
     })
 
     return NextResponse.json({
-      success: true,
-      message: `Berhasil menghapus ${deleted.count} nota`,
-      count: deleted.count,
+      pendingApproval: true,
+      message: `Permintaan hapus massal (${ids.length} nota) berhasil diajukan oleh ${adminUser}. Menunggu verifikasi dari admin lain.`,
+      approval,
     })
   } catch (error: any) {
     console.error("Bulk DELETE Receipts Error:", error)
-    return NextResponse.json({ error: "Gagal menghapus nota secara massal" }, { status: 500 })
+    return NextResponse.json({ error: "Gagal mengajukan hapus nota secara massal" }, { status: 500 })
   }
 }

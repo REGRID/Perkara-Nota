@@ -121,9 +121,47 @@ export function VerificationSplitScreen({
     fetchCategoryHierarchy()
   }, [])
 
+  // Auto-sanitize item sub-categories so no out-of-bound sub-categories exist
+  useEffect(() => {
+    if (!categoryHierarchy || categoryHierarchy.length === 0 || !items || items.length === 0) return
+
+    let hasChanges = false
+    const sanitizedItems = items.map((item) => {
+      const parentCategoryClean = (item.category || "").toLowerCase().trim()
+      const matchingParent = categoryHierarchy.find(
+        (h) =>
+          h.name.toLowerCase().trim() === parentCategoryClean ||
+          parentCategoryClean.includes(h.name.toLowerCase()) ||
+          h.name.toLowerCase().includes(parentCategoryClean)
+      )
+
+      const dbSubNames = matchingParent ? matchingParent.subCategories.map((s) => s.name) : []
+      const validSubList = ["Umum", ...dbSubNames]
+
+      const isValidSub = validSubList.some(
+        (s) => s.toLowerCase().trim() === (item.subCategory || "").toLowerCase().trim()
+      )
+
+      if (!isValidSub) {
+        hasChanges = true
+        return {
+          ...item,
+          category: matchingParent ? matchingParent.name : item.category || categoryHierarchy[0]?.name || "Lain-lain",
+          subCategory: dbSubNames.length > 0 ? dbSubNames[0] : "Umum",
+        }
+      }
+      return item
+    })
+
+    if (hasChanges) {
+      setItems(sanitizedItems)
+    }
+  }, [categoryHierarchy])
+
   const openAddCategoryModal = (type: "parent" | "sub", parentName?: string, itemIndex?: number | null) => {
     setNewCatType(type)
     setTargetItemIndexForCategory(itemIndex !== undefined && itemIndex !== null ? itemIndex : null)
+    setNewCategoryName("")
 
     if (type === "sub") {
       if (parentName) {
@@ -138,6 +176,8 @@ export function VerificationSplitScreen({
       } else if (categoryHierarchy.length > 0) {
         setSelectedParentForSub(categoryHierarchy[0].id)
       }
+    } else if (categoryHierarchy.length > 0 && !selectedParentForSub) {
+      setSelectedParentForSub(categoryHierarchy[0].id)
     }
 
     setShowAddCategoryModal(true)
@@ -145,11 +185,24 @@ export function VerificationSplitScreen({
 
   const handleCreateCustomCategory = async () => {
     const cleanName = newCategoryName.trim()
-    if (!cleanName) return
+    if (!cleanName) {
+      alert("Nama kategori tidak boleh kosong.")
+      return
+    }
+
     try {
       const payload: any = { name: cleanName }
-      if (newCatType === "sub" && selectedParentForSub) {
-        payload.parentId = selectedParentForSub
+      let targetParentObj: CategoryGroup | undefined
+
+      if (newCatType === "sub") {
+        targetParentObj =
+          categoryHierarchy.find((h) => h.id === selectedParentForSub) ||
+          categoryHierarchy.find((h) => h.name === selectedParentForSub) ||
+          categoryHierarchy[0]
+
+        if (targetParentObj) {
+          payload.parentId = targetParentObj.id
+        }
       }
 
       const res = await fetch("/api/categories", {
@@ -159,22 +212,41 @@ export function VerificationSplitScreen({
       })
 
       if (res.ok) {
+        const resData = await res.json()
         setNewCategoryName("")
         setShowAddCategoryModal(false)
-        await fetchCategoryHierarchy()
 
-        // Auto-assign created category to target item if triggered from item row
+        let updatedHierarchy = categoryHierarchy
+        if (resData.hierarchy && Array.isArray(resData.hierarchy)) {
+          updatedHierarchy = resData.hierarchy
+          setCategoryHierarchy(resData.hierarchy)
+        } else {
+          const catRes = await fetch("/api/categories")
+          if (catRes.ok) {
+            const catData = await catRes.json()
+            if (catData.hierarchy && Array.isArray(catData.hierarchy)) {
+              updatedHierarchy = catData.hierarchy
+              setCategoryHierarchy(catData.hierarchy)
+            }
+          }
+        }
+
+        // Auto-assign created category/subcategory to target item if triggered from item row
         if (targetItemIndexForCategory !== null && targetItemIndexForCategory < items.length) {
           const updatedItems = [...items]
+          const currentItem = updatedItems[targetItemIndexForCategory]
+
           if (newCatType === "parent") {
             updatedItems[targetItemIndexForCategory] = {
-              ...updatedItems[targetItemIndexForCategory],
+              ...currentItem,
               category: cleanName,
               subCategory: "Umum",
             }
           } else {
+            const parentName = targetParentObj ? targetParentObj.name : currentItem.category
             updatedItems[targetItemIndexForCategory] = {
-              ...updatedItems[targetItemIndexForCategory],
+              ...currentItem,
+              category: parentName,
               subCategory: cleanName,
             }
           }
@@ -186,6 +258,7 @@ export function VerificationSplitScreen({
         alert(errData.error || "Gagal menambah kategori baru")
       }
     } catch (e) {
+      console.error("Create custom category error:", e)
       alert("Gagal menambah kategori baru")
     }
   }
@@ -520,7 +593,7 @@ export function VerificationSplitScreen({
 
               <button
                 type="button"
-                onClick={() => setShowAddCategoryModal(true)}
+                onClick={() => openAddCategoryModal("parent")}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-extrabold transition-colors border border-emerald-200 shadow-2xs"
               >
                 <FolderPlus className="w-4 h-4" /> + Buat Kategori Baru
@@ -657,13 +730,6 @@ export function VerificationSplitScreen({
                       h.name.toLowerCase().includes(currentCategoryClean)
                   )
 
-                  const dbSubNames = currentParentObj ? currentParentObj.subCategories.map((s) => s.name) : []
-                  const rawList = ["Umum", ...dbSubNames]
-                  if (item.subCategory && !rawList.includes(item.subCategory)) {
-                    rawList.push(item.subCategory)
-                  }
-                  const availableSubOptions = Array.from(new Set(rawList))
-
                   const itemTotal = (item.price || 0) * (item.quantity || 1)
 
                   return (
@@ -752,10 +818,19 @@ export function VerificationSplitScreen({
                           </div>
                           <div className="relative">
                             <select
-                              value={item.category || (categoryHierarchy[0]?.name || "Lain-lain")}
+                              value={
+                                (() => {
+                                  const match = categoryHierarchy.find(
+                                    (h) => h.name.toLowerCase().trim() === (item.category || "").toLowerCase().trim()
+                                  )
+                                  return match ? match.name : item.category || categoryHierarchy[0]?.name || "Lain-lain"
+                                })()
+                              }
                               onChange={(e) => {
                                 const newParent = e.target.value
-                                const matchingParent = categoryHierarchy.find((h) => h.name === newParent)
+                                const matchingParent = categoryHierarchy.find(
+                                  (h) => h.name.toLowerCase().trim() === newParent.toLowerCase().trim()
+                                )
                                 const defaultSub = matchingParent?.subCategories[0]?.name || "Umum"
                                 handleItemChange(idx, "category", newParent)
                                 handleItemChange(idx, "subCategory", defaultSub)
@@ -764,7 +839,10 @@ export function VerificationSplitScreen({
                             >
                               {(() => {
                                 const parentNames = categoryHierarchy.map((h) => h.name)
-                                const options = item.category && !parentNames.includes(item.category)
+                                const hasMatch = parentNames.some(
+                                  (p) => p.toLowerCase().trim() === (item.category || "").toLowerCase().trim()
+                                )
+                                const options = item.category && !hasMatch
                                   ? [item.category, ...parentNames]
                                   : parentNames.length > 0
                                   ? parentNames
@@ -795,7 +873,19 @@ export function VerificationSplitScreen({
                           </div>
                           <div className="relative">
                             <select
-                              value={item.subCategory || "Umum"}
+                              value={
+                                (() => {
+                                  const matchingParent = categoryHierarchy.find(
+                                    (h) => h.name.toLowerCase().trim() === (item.category || "").toLowerCase().trim()
+                                  )
+                                  const dbSubNames = matchingParent ? matchingParent.subCategories.map((s) => s.name) : []
+                                  const validSubList = ["Umum", ...dbSubNames]
+                                  const subMatch = validSubList.find(
+                                    (s) => s.toLowerCase().trim() === (item.subCategory || "").toLowerCase().trim()
+                                  )
+                                  return subMatch || (dbSubNames.length > 0 ? dbSubNames[0] : "Umum")
+                                })()
+                              }
                               onChange={(e) => handleItemChange(idx, "subCategory", e.target.value)}
                               className="w-full appearance-none pl-3.5 pr-8 py-2.5 rounded-xl border border-emerald-300 focus:border-emerald-500 text-xs font-bold text-emerald-900 bg-emerald-50/50 cursor-pointer"
                             >
@@ -804,11 +894,7 @@ export function VerificationSplitScreen({
                                   (h) => h.name.toLowerCase().trim() === (item.category || "").toLowerCase().trim()
                                 )
                                 const dbSubNames = matchingParent ? matchingParent.subCategories.map((s) => s.name) : []
-                                const rawSubList = ["Umum", ...dbSubNames]
-                                if (item.subCategory && !rawSubList.includes(item.subCategory)) {
-                                  rawSubList.push(item.subCategory)
-                                }
-                                const subOptions = Array.from(new Set(rawSubList))
+                                const subOptions = Array.from(new Set(["Umum", ...dbSubNames]))
 
                                 return subOptions.map((subName) => (
                                   <option key={subName} value={subName}>

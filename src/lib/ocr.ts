@@ -6,14 +6,14 @@ export interface OCRProgress {
 }
 
 /**
- * Compresses and resizes large camera photos to prevent payload size overflow and 'load failed' timeouts.
- * Reduces 15MB+ camera photos to ~300-500KB while preserving crisp text legibility.
+ * Compresses and formats photos into a 1:1 square aspect ratio canvas.
+ * Zooms out and letterboxes non-square images with transparent background without cropping any text/content.
  */
 export function compressImageBase64(
   base64Data: string,
   maxWidth = 1600,
   maxHeight = 1600,
-  quality = 0.8
+  _quality = 0.85
 ): Promise<string> {
   return new Promise((resolve) => {
     if (!base64Data || !base64Data.startsWith("data:image")) {
@@ -25,31 +25,44 @@ export function compressImageBase64(
       img.crossOrigin = "anonymous"
     }
     img.onload = () => {
-      let width = img.width
-      let height = img.height
+      let origWidth = img.width
+      let origHeight = img.height
 
-      if (width > maxWidth || height > maxHeight) {
-        if (width > height) {
-          height = Math.round((height * maxWidth) / width)
-          width = maxWidth
+      let scaledWidth = origWidth
+      let scaledHeight = origHeight
+
+      if (scaledWidth > maxWidth || scaledHeight > maxHeight) {
+        if (scaledWidth > scaledHeight) {
+          scaledHeight = Math.round((scaledHeight * maxWidth) / scaledWidth)
+          scaledWidth = maxWidth
         } else {
-          width = Math.round((width * maxHeight) / height)
-          height = maxHeight
+          scaledWidth = Math.round((scaledWidth * maxHeight) / scaledHeight)
+          scaledHeight = maxHeight
         }
       }
 
+      // Guarantee 1:1 Square canvas: side = max(scaledWidth, scaledHeight)
+      const side = Math.max(scaledWidth, scaledHeight)
+
       const canvas = document.createElement("canvas")
-      canvas.width = width
-      canvas.height = height
+      canvas.width = side
+      canvas.height = side
       const ctx = canvas.getContext("2d")
 
       if (!ctx) return resolve(base64Data)
 
+      // Clear canvas so letterbox padding is 100% transparent
+      ctx.clearRect(0, 0, side, side)
+
+      // Center the image inside the 1:1 square canvas
+      const offsetX = Math.round((side - scaledWidth) / 2)
+      const offsetY = Math.round((side - scaledHeight) / 2)
+
       ctx.imageSmoothingEnabled = true
       ctx.imageSmoothingQuality = "high"
-      ctx.drawImage(img, 0, 0, width, height)
+      ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight)
 
-      const compressedBase64 = canvas.toDataURL("image/jpeg", quality)
+      const compressedBase64 = canvas.toDataURL("image/png")
       resolve(compressedBase64)
     }
     img.onerror = () => {
@@ -61,7 +74,7 @@ export function compressImageBase64(
 }
 
 /**
- * Helper to rotate a base64 image by degrees (90, 180, 270) onto a clean Canvas
+ * Helper to rotate a base64 image onto a clean 1:1 Square Canvas with transparent letterbox padding
  */
 export function rotateImageBase64(base64Data: string, degrees: number): Promise<string> {
   return new Promise((resolve) => {
@@ -72,23 +85,31 @@ export function rotateImageBase64(base64Data: string, degrees: number): Promise<
       img.crossOrigin = "anonymous"
     }
     img.onload = () => {
+      let rotatedW = img.width
+      let rotatedH = img.height
+
+      if (degrees === 90 || degrees === 270) {
+        rotatedW = img.height
+        rotatedH = img.width
+      }
+
+      // Guarantee 1:1 Square Canvas
+      const side = Math.max(rotatedW, rotatedH)
+
       const canvas = document.createElement("canvas")
+      canvas.width = side
+      canvas.height = side
       const ctx = canvas.getContext("2d")
       if (!ctx) return resolve(base64Data)
 
-      if (degrees === 90 || degrees === 270) {
-        canvas.width = img.height
-        canvas.height = img.width
-      } else {
-        canvas.width = img.width
-        canvas.height = img.height
-      }
+      // Clear canvas for 100% transparent letterbox padding
+      ctx.clearRect(0, 0, side, side)
 
-      ctx.translate(canvas.width / 2, canvas.height / 2)
+      ctx.translate(side / 2, side / 2)
       ctx.rotate((degrees * Math.PI) / 180)
       ctx.drawImage(img, -img.width / 2, -img.height / 2)
 
-      resolve(canvas.toDataURL("image/jpeg", 0.85))
+      resolve(canvas.toDataURL("image/png"))
     }
     img.onerror = () => resolve(base64Data)
     img.src = base64Data

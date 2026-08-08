@@ -53,13 +53,11 @@ export async function POST(req: NextRequest) {
       if (parentById) {
         resolvedParentId = parentById.id
       } else {
-        // 2. Try finding parent by Name
-        const parentByName = await (db as any).customCategory.findFirst({
-          where: {
-            name: targetParentStr,
-            parentId: null,
-          },
-        })
+        // 2. Try finding parent by Name (case-insensitive)
+        const allParents = await (db as any).customCategory.findMany({ where: { parentId: null } })
+        const parentByName = allParents.find(
+          (c: any) => c.name.toLowerCase().trim() === targetParentStr.toLowerCase().trim()
+        )
 
         if (parentByName) {
           resolvedParentId = parentByName.id
@@ -76,16 +74,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Check if duplicate exists
-    const existing = await (db as any).customCategory.findFirst({
-      where: {
-        name: cleanName,
-        parentId: resolvedParentId,
-      },
+    // Check if duplicate exists (case-insensitive)
+    const siblings = await (db as any).customCategory.findMany({
+      where: { parentId: resolvedParentId },
     })
 
+    const existing = siblings.find(
+      (c: any) => c.name.toLowerCase().trim() === cleanName.toLowerCase().trim()
+    )
+
+    const updatedHierarchy = await getOrSeedCategories()
+
     if (existing) {
-      return NextResponse.json(existing, { status: 200 })
+      return NextResponse.json({ ...existing, hierarchy: updatedHierarchy }, { status: 200 })
     }
 
     const created = await (db as any).customCategory.create({
@@ -95,7 +96,8 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    return NextResponse.json(created, { status: 201 })
+    const finalHierarchy = await getOrSeedCategories()
+    return NextResponse.json({ ...created, hierarchy: finalHierarchy }, { status: 201 })
   } catch (error: any) {
     console.error("POST Category Error:", error)
     return NextResponse.json({ error: error.message || "Gagal menambah kategori baru" }, { status: 500 })
