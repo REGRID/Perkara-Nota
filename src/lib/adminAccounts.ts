@@ -45,91 +45,36 @@ function setLocalPassword(username: string, pass: string): boolean {
 }
 
 /**
- * Validate admin credentials for a given username and password.
- * Checks local memory/file, DB custom password, DEFAULT_ADMINS, and .env credentials.
- */
-export async function validateAdminCredentials(username: string, inputPass: string): Promise<boolean> {
-  try {
-    const cleanUser = username.trim().toLowerCase()
-    const cleanPass = inputPass.trim()
-
-    if (!cleanUser || !cleanPass) return false
-
-    // 1. Check Local Persistent / Memory Passwords
-    const localPasses = getLocalPasswords()
-    if (localPasses[cleanUser]) {
-      if (cleanPass === localPasses[cleanUser].trim()) {
-        return true
-      }
-    }
-
-    // 2. Check DB custom password if updated via Settings
-    try {
-      const dbAccount = await (db as any).adminAccount.findFirst({
-        where: { username: cleanUser },
-      })
-      if (dbAccount && dbAccount.password) {
-        if (cleanPass === dbAccount.password.trim()) {
-          return true
-        }
-      }
-    } catch (e) {
-      // DB table not pushed yet or query error
-    }
-
-    // 3. Check DEFAULT_ADMINS
-    const defaultItem = DEFAULT_ADMINS.find((a) => a.username === cleanUser)
-    if (defaultItem && cleanPass === defaultItem.defaultPass) {
-      return true
-    }
-
-    // 4. Check env variables
-    const envUserA = (process.env.ADMIN_A_USERNAME || "rama").toLowerCase()
-    const envPassA = (process.env.ADMIN_A_PASSWORD || "adminnota123").trim()
-
-    const envUserB = (process.env.ADMIN_B_USERNAME || "refo").toLowerCase()
-    const envPassB = (process.env.ADMIN_B_PASSWORD || "adminnota456").trim()
-
-    if (cleanUser === envUserA && cleanPass === envPassA) return true
-    if (cleanUser === envUserB && cleanPass === envPassB) return true
-
-    return false
-  } catch (error) {
-    console.error("validateAdminCredentials error:", error)
-    return false
-  }
-}
-
-/**
- * Fetch active password for a given admin username (rama / refo).
+ * Fetch active single password for a given admin username (rama / refo).
+ * Returns custom changed password if exists, or default credential.
  * Returns null if username is unknown.
  */
 export async function getAdminPassword(username: string): Promise<string | null> {
   try {
     const cleanUser = username.trim().toLowerCase()
 
-    // 1. Check Local File / Memory
+    // 1. Check Local Persistent / Memory File
     const localPasses = getLocalPasswords()
     if (localPasses[cleanUser]) {
-      return localPasses[cleanUser]
+      return localPasses[cleanUser].trim()
     }
 
-    // 2. Check DB
+    // 2. Check Database Table
     try {
       const dbAccount = await (db as any).adminAccount.findFirst({
         where: { username: cleanUser },
       })
       if (dbAccount && dbAccount.password) {
-        return dbAccount.password
+        return dbAccount.password.trim()
       }
     } catch (e) {
-      // fallback
+      // fallback if table query error
     }
 
-    // 3. Check Defaults
+    // 3. Fallback to DEFAULT_ADMINS if not customized yet
     const defaultItem = DEFAULT_ADMINS.find((a) => a.username === cleanUser)
     if (defaultItem) {
-      return defaultItem.defaultPass
+      return defaultItem.defaultPass.trim()
     }
 
     if (cleanUser === (process.env.ADMIN_A_USERNAME || "rama").toLowerCase()) {
@@ -143,6 +88,28 @@ export async function getAdminPassword(username: string): Promise<string | null>
   } catch (error) {
     console.error("getAdminPassword error:", error)
     return null
+  }
+}
+
+/**
+ * Validate admin credentials for a given username and password.
+ * Strictly compares against the single active password for the ID.
+ */
+export async function validateAdminCredentials(username: string, inputPass: string): Promise<boolean> {
+  try {
+    const cleanUser = username.trim().toLowerCase()
+    const cleanPass = inputPass.trim()
+
+    if (!cleanUser || !cleanPass) return false
+
+    const activePassword = await getAdminPassword(cleanUser)
+
+    if (!activePassword) return false
+
+    return cleanPass === activePassword
+  } catch (error) {
+    console.error("validateAdminCredentials error:", error)
+    return false
   }
 }
 
