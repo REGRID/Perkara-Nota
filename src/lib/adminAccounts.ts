@@ -45,6 +45,40 @@ function setLocalPassword(username: string, pass: string): boolean {
 }
 
 /**
+ * Programmatically rewrite .env.local file to ensure changed password remains default permanently
+ */
+function updateEnvFilePassword(username: string, newPass: string) {
+  try {
+    const cleanUser = username.trim().toLowerCase()
+
+    // 1. Update running process env
+    if (cleanUser === "rama" || cleanUser === (process.env.ADMIN_A_USERNAME || "rama").toLowerCase()) {
+      process.env.ADMIN_A_PASSWORD = newPass
+    }
+    if (cleanUser === "refo" || cleanUser === (process.env.ADMIN_B_USERNAME || "refo").toLowerCase()) {
+      process.env.ADMIN_B_PASSWORD = newPass
+    }
+
+    // 2. Rewrite .env.local file on disk
+    const envPath = path.join(process.cwd(), ".env.local")
+    if (fs.existsSync(envPath)) {
+      let content = fs.readFileSync(envPath, "utf-8")
+      if (cleanUser === "rama" || cleanUser === (process.env.ADMIN_A_USERNAME || "rama").toLowerCase()) {
+        content = content.replace(/ADMIN_A_PASSWORD=["'][^"']*["']/g, `ADMIN_A_PASSWORD="${newPass}"`)
+        content = content.replace(/ADMIN_A_PASSWORD=[^\r\n]+/g, `ADMIN_A_PASSWORD="${newPass}"`)
+      }
+      if (cleanUser === "refo" || cleanUser === (process.env.ADMIN_B_USERNAME || "refo").toLowerCase()) {
+        content = content.replace(/ADMIN_B_PASSWORD=["'][^"']*["']/g, `ADMIN_B_PASSWORD="${newPass}"`)
+        content = content.replace(/ADMIN_B_PASSWORD=[^\r\n]+/g, `ADMIN_B_PASSWORD="${newPass}"`)
+      }
+      fs.writeFileSync(envPath, content, "utf-8")
+    }
+  } catch (err) {
+    console.warn("Could not update .env.local file:", err)
+  }
+}
+
+/**
  * Fetch active single password for a given admin username (rama / refo).
  * Returns custom changed password if exists, or default credential.
  * Returns null if username is unknown.
@@ -115,7 +149,7 @@ export async function validateAdminCredentials(username: string, inputPass: stri
 
 /**
  * Update password for a given admin username (rama / refo).
- * Saves to memory + local persistent JSON file AND attempts DB sync.
+ * Permanently updates local memory, .env.local file, admin_passwords.json, and Postgres DB.
  */
 export async function updateAdminPassword(username: string, newPass: string): Promise<boolean> {
   try {
@@ -124,10 +158,19 @@ export async function updateAdminPassword(username: string, newPass: string): Pr
 
     if (!cleanUser || !cleanPass) return false
 
-    // 1. Always save to local storage & in-memory map first
+    // 1. Update in-memory DEFAULT_ADMINS
+    const def = DEFAULT_ADMINS.find((a) => a.username === cleanUser)
+    if (def) {
+      def.defaultPass = cleanPass
+    }
+
+    // 2. Save to local storage & in-memory map
     setLocalPassword(cleanUser, cleanPass)
 
-    // 2. Attempt DB sync if table exists
+    // 3. Update .env.local file & process.env on disk
+    updateEnvFilePassword(cleanUser, cleanPass)
+
+    // 4. Attempt DB sync if table exists
     try {
       const existing = await (db as any).adminAccount.findFirst({
         where: { username: cleanUser },
@@ -147,7 +190,7 @@ export async function updateAdminPassword(username: string, newPass: string): Pr
         })
       }
     } catch (dbErr) {
-      console.warn("DB password sync notice (saved to local persistent file):", dbErr)
+      console.warn("DB password sync notice (saved to local persistent file and .env):", dbErr)
     }
 
     return true
