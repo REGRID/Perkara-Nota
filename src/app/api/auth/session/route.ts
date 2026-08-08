@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getAdminPassword } from "@/lib/adminAccounts"
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,24 +17,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ authenticated: false }, { status: 401 })
     }
 
-    const username = parts[0]
-    const password = parts[1]
+    const username = (parts[0] || "").trim().toLowerCase()
+    const password = (parts[1] || "").trim()
 
-    const adminAUser = process.env.ADMIN_A_USERNAME || "admin1"
-    const adminAPass = process.env.ADMIN_A_PASSWORD || "adminnota123"
+    const validPassword = await getAdminPassword(username)
 
-    const adminBUser = process.env.ADMIN_B_USERNAME || "admin2"
-    const adminBPass = process.env.ADMIN_B_PASSWORD || "adminnota456"
-
-    const legacyUser = process.env.ADMIN_USERNAME || "admin"
-    const legacyPass = process.env.ADMIN_PASSWORD || "adminnota123"
-
-    let isValid = false
-    if (username === adminAUser && password === adminAPass) isValid = true
-    else if (username === adminBUser && password === adminBPass) isValid = true
-    else if (username === legacyUser && password === legacyPass) isValid = true
-
-    if (isValid) {
+    if (validPassword && password === validPassword) {
       return NextResponse.json({
         authenticated: true,
         user: { username },

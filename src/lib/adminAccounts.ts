@@ -7,9 +7,10 @@ export const DEFAULT_ADMINS = [
 ]
 
 /**
- * Fetch active password for a given admin username (rama / refo / admin)
+ * Fetch active password for a given admin username (rama / refo / admin).
+ * Returns null if username is unknown.
  */
-export async function getAdminPassword(username: string): Promise<string> {
+export async function getAdminPassword(username: string): Promise<string | null> {
   try {
     const cleanUser = username.trim().toLowerCase()
     const dbAccount = await (db as any).adminAccount.findFirst({
@@ -32,10 +33,10 @@ export async function getAdminPassword(username: string): Promise<string> {
       return process.env.ADMIN_B_PASSWORD || "adminnota456"
     }
 
-    return "adminnota123"
+    return null
   } catch (error) {
     console.error("getAdminPassword error:", error)
-    return "adminnota123"
+    return null
   }
 }
 

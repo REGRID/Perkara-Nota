@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
 
     const validPassword = await getAdminPassword(cleanUsername)
 
-    if (cleanPassword !== validPassword) {
+    if (!validPassword || cleanPassword !== validPassword) {
       return NextResponse.json({ error: "ID Admin atau Password salah. Akses ditolak." }, { status: 401 })
     }
 
