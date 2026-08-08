@@ -41,30 +41,6 @@ function sanitizeRawText(input: string): string {
 }
 
 async function callGeminiRestApi(apiKey: string, modelName: string, contentsParts: any[]) {
-  try {
-    const ai = new GoogleGenAI({ apiKey })
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: contentsParts,
-    })
-    if (response.text) {
-      return response.text.trim()
-    }
-  } catch (sdkErr: any) {
-    const errText = sdkErr.message || String(sdkErr)
-    if (errText.includes("API_KEY_INVALID") || errText.includes("API key not valid") || errText.includes("INVALID_ARGUMENT")) {
-      const invalidErr = new Error("GOOGLE_API_KEY_INVALID: API Key tidak valid. Silakan buat API Key gratis di https://aistudio.google.com/app/apikey")
-      ;(invalidErr as any).status = 400
-      throw invalidErr
-    }
-    if (errText.includes("429") || errText.includes("RESOURCE_EXHAUSTED") || errText.includes("Quota exceeded")) {
-      const quotaErr = new Error("GOOGLE_CLOUD_QUOTA_EXCEEDED")
-      ;(quotaErr as any).status = 429
-      throw quotaErr
-    }
-  }
-
-  // Fallback to direct REST API if SDK returns empty
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`
   const response = await fetch(url, {
     method: "POST",
@@ -83,6 +59,9 @@ async function callGeminiRestApi(apiKey: string, modelName: string, contentsPart
       const quotaErr = new Error("GOOGLE_CLOUD_QUOTA_EXCEEDED")
       ;(quotaErr as any).status = 429
       throw quotaErr
+    }
+    if (response.status === 404) {
+      throw new Error(`MODEL_NOT_FOUND: Model ${modelName} tidak ditemukan`)
     }
     throw new Error(`Gemini API Error (${response.status}): ${errText}`)
   }
@@ -233,46 +212,37 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
     let textOutput = ""
 
     try {
-      textOutput = await callGeminiRestApi(apiKey, "gemini-2.0-flash", contentsParts)
+      textOutput = await callGeminiRestApi(apiKey, "gemini-flash-latest", contentsParts)
     } catch (e1: any) {
       if (e1.message?.includes("GOOGLE_API_KEY_INVALID")) {
         return NextResponse.json({ error: "INVALID_API_KEY", message: e1.message }, { status: 400 })
       }
 
-      console.warn("gemini-2.0-flash failed/rate limited, trying gemini-1.5-flash:", e1.message)
+      console.warn("gemini-flash-latest failed, trying gemini-2.0-flash:", e1.message)
       try {
-        textOutput = await callGeminiRestApi(apiKey, "gemini-1.5-flash", contentsParts)
+        textOutput = await callGeminiRestApi(apiKey, "gemini-2.0-flash", contentsParts)
       } catch (e2: any) {
         if (e2.message?.includes("GOOGLE_API_KEY_INVALID")) {
           return NextResponse.json({ error: "INVALID_API_KEY", message: e2.message }, { status: 400 })
         }
-
-        console.warn("gemini-1.5-flash failed/rate limited, trying gemini-2.5-flash:", e2.message)
-        try {
-          textOutput = await callGeminiRestApi(apiKey, "gemini-2.5-flash", contentsParts)
-        } catch (e3: any) {
-          if (e3.message?.includes("GOOGLE_API_KEY_INVALID")) {
-            return NextResponse.json({ error: "INVALID_API_KEY", message: e3.message }, { status: 400 })
-          }
-          if (e3.status === 429 || e3.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
-            return NextResponse.json(
-              {
-                error: "QUOTA_EXCEEDED",
-                message: "Batas frekuensi Google Gemini API (Rate limit 429) tercapai. Silakan coba beberapa detik lagi.",
-              },
-              { status: 429 }
-            )
-          }
-
-          console.error("Gemini API parsing failed:", e3)
+        if (e2.status === 429 || e2.message === "GOOGLE_CLOUD_QUOTA_EXCEEDED") {
           return NextResponse.json(
             {
-              error: "API_PARSE_FAILED",
-              message: `Gagal memproses nota dari server AI: ${e3.message || "Kesalahan API"}`,
+              error: "QUOTA_EXCEEDED",
+              message: "Batas frekuensi Google Gemini API (Rate limit 429) tercapai. Silakan coba beberapa detik lagi.",
             },
-            { status: 502 }
+            { status: 429 }
           )
         }
+
+        console.error("Gemini API parsing failed:", e2)
+        return NextResponse.json(
+          {
+            error: "API_PARSE_FAILED",
+            message: `Gagal memproses nota dari server AI: ${e2.message || "Kesalahan API"}`,
+          },
+          { status: 502 }
+        )
       }
     }
 
