@@ -61,6 +61,9 @@ async function callGeminiRestApi(apiKey: string, modelName: string, contentsPart
       ;(quotaErr as any).status = 429
       throw quotaErr
     }
+    if (response.status === 404) {
+      throw new Error(`MODEL_NOT_FOUND: Model ${modelName} tidak tersedia di endpoint API v1beta`)
+    }
     throw new Error(`Gemini REST API Error (${response.status}): ${errText}`)
   }
 
@@ -224,9 +227,9 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
           return NextResponse.json({ error: "INVALID_API_KEY", message: e2.message }, { status: 400 })
         }
 
-        console.warn("gemini-1.5-flash failed/rate limited, trying gemini-1.5-pro:", e2.message)
+        console.warn("gemini-1.5-flash failed/rate limited, trying gemini-2.5-flash:", e2.message)
         try {
-          textOutput = await callGeminiRestApi(apiKey, "gemini-1.5-pro", contentsParts)
+          textOutput = await callGeminiRestApi(apiKey, "gemini-2.5-flash", contentsParts)
         } catch (e3: any) {
           if (e3.message?.includes("GOOGLE_API_KEY_INVALID")) {
             return NextResponse.json({ error: "INVALID_API_KEY", message: e3.message }, { status: 400 })
