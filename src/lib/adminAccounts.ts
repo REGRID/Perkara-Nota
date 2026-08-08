@@ -3,7 +3,6 @@ import { db } from "@/lib/db"
 export const DEFAULT_ADMINS = [
   { username: "rama", defaultPass: "adminnota123" },
   { username: "refo", defaultPass: "adminnota456" },
-  { username: "admin", defaultPass: "adminnota123" },
 ]
 
 /**
