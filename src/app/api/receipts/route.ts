@@ -18,16 +18,16 @@ export async function GET(req: NextRequest) {
           search
             ? {
                 OR: [
-                  { merchantName: { contains: search } },
-                  { note: { contains: search } },
-                  { paymentMethod: { contains: search } },
+                  { merchantName: { contains: search, mode: "insensitive" } },
+                  { note: { contains: search, mode: "insensitive" } },
+                  { paymentMethod: { contains: search, mode: "insensitive" } },
                   {
                     items: {
                       some: {
                         OR: [
-                          { name: { contains: search } },
-                          { category: { contains: search } },
-                          { subCategory: { contains: search } },
+                          { name: { contains: search, mode: "insensitive" } },
+                          { category: { contains: search, mode: "insensitive" } },
+                          { subCategory: { contains: search, mode: "insensitive" } },
                         ],
                       },
                     },
@@ -40,9 +40,9 @@ export async function GET(req: NextRequest) {
                 items: {
                   some: {
                     OR: [
-                      { category: { contains: category } },
-                      { subCategory: { contains: category } },
-                      { category: { contains: rootKeyword } },
+                      { category: { contains: category, mode: "insensitive" } },
+                      { subCategory: { contains: category, mode: "insensitive" } },
+                      { category: { contains: rootKeyword, mode: "insensitive" } },
                     ],
                   },
                 },

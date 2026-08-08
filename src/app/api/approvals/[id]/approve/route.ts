@@ -20,7 +20,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     // Dual-Control Enforcement: Prevent Self-Approval!
-    if (pendingApproval.requestedBy === approvingAdmin) {
+    if (pendingApproval.requestedBy.toLowerCase() === approvingAdmin.toLowerCase()) {
       return NextResponse.json({
         error: `Akses Ditolak: Permintaan diajukan oleh Anda (${approvingAdmin}). Verifikasi harus dilakukan oleh Admin lain.`,
       }, { status: 403 })
