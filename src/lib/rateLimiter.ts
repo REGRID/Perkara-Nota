@@ -36,16 +36,36 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
     const tomorrow = new Date(now)
     tomorrow.setHours(tomorrow.getHours() + 24)
 
-    let limitRecord = await db.scanLimit.upsert({
+    let limitRecord = await db.scanLimit.findFirst({
       where: { ipAddress: cleanIp },
-      update: {},
-      create: {
-        ipAddress: cleanIp,
-        scanCount: 0,
-        lastScanAt: now,
-        resetAt: tomorrow,
-      },
     })
+
+    if (!limitRecord) {
+      try {
+        limitRecord = await db.scanLimit.create({
+          data: {
+            ipAddress: cleanIp,
+            scanCount: 0,
+            lastScanAt: now,
+            resetAt: tomorrow,
+          },
+        })
+      } catch (createErr) {
+        // Race condition: another request created the record concurrently
+        limitRecord = await db.scanLimit.findFirst({
+          where: { ipAddress: cleanIp },
+        })
+      }
+    }
+
+    if (!limitRecord) {
+      return {
+        allowed: true,
+        remaining: DAILY_SCAN_LIMIT,
+        current: 0,
+        resetAt: tomorrow,
+      }
+    }
 
     // Reset daily counter if 24 hours elapsed
     if (now > limitRecord.resetAt) {
@@ -53,7 +73,7 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
       nextReset.setHours(nextReset.getHours() + 24)
 
       limitRecord = await db.scanLimit.update({
-        where: { ipAddress: cleanIp },
+        where: { id: limitRecord.id },
         data: {
           scanCount: 0,
           resetAt: nextReset,
@@ -91,20 +111,40 @@ export async function incrementRateLimit(ipAddress: string): Promise<number> {
   const tomorrow = new Date(now.getTime() + 86400000)
 
   try {
-    const updated = await db.scanLimit.upsert({
+    let record = await db.scanLimit.findFirst({
       where: { ipAddress: cleanIp },
-      update: {
-        scanCount: { increment: 1 },
-        lastScanAt: now,
-      },
-      create: {
-        ipAddress: cleanIp,
-        scanCount: 1,
-        lastScanAt: now,
-        resetAt: tomorrow,
-      },
     })
-    return Math.max(DAILY_SCAN_LIMIT - updated.scanCount, 0)
+
+    if (!record) {
+      try {
+        record = await db.scanLimit.create({
+          data: {
+            ipAddress: cleanIp,
+            scanCount: 1,
+            lastScanAt: now,
+            resetAt: tomorrow,
+          },
+        })
+        return Math.max(DAILY_SCAN_LIMIT - record.scanCount, 0)
+      } catch (err) {
+        record = await db.scanLimit.findFirst({
+          where: { ipAddress: cleanIp },
+        })
+      }
+    }
+
+    if (record) {
+      const updated = await db.scanLimit.update({
+        where: { id: record.id },
+        data: {
+          scanCount: { increment: 1 },
+          lastScanAt: now,
+        },
+      })
+      return Math.max(DAILY_SCAN_LIMIT - updated.scanCount, 0)
+    }
+
+    return DAILY_SCAN_LIMIT - 1
   } catch (error) {
     console.error("Error incrementing rate limit count:", error)
     return DAILY_SCAN_LIMIT - 1

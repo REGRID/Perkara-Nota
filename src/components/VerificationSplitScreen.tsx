@@ -745,9 +745,9 @@ export function VerificationSplitScreen({
                             <button
                               type="button"
                               onClick={() => openAddCategoryModal("parent", undefined, idx)}
-                              className="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-800 flex items-center gap-0.5"
+                              className="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-800 flex items-center gap-1"
                             >
-                              <Plus className="w-3 h-3 text-emerald-600" /> + Tambah
+                              <Plus className="w-3.5 h-3.5 text-emerald-600" /> Tambah
                             </button>
                           </div>
                           <div className="relative">
@@ -788,9 +788,9 @@ export function VerificationSplitScreen({
                             <button
                               type="button"
                               onClick={() => openAddCategoryModal("sub", item.category, idx)}
-                              className="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-800 flex items-center gap-0.5"
+                              className="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-800 flex items-center gap-1"
                             >
-                              <Plus className="w-3 h-3 text-emerald-600" /> + Tambah Sub
+                              <Plus className="w-3.5 h-3.5 text-emerald-600" /> Tambah Sub
                             </button>
                           </div>
                           <div className="relative">
