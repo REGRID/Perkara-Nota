@@ -122,9 +122,25 @@ interface ReceiptHistoryDashboardProps {
 }
 
 export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, currentAdminUser = "admin" }: ReceiptHistoryDashboardProps) {
-  const [allReceipts, setAllReceipts] = useState<ReceiptData[]>([])
+  const [allReceipts, setAllReceipts] = useState<ReceiptData[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("nota_receipts_cache_v2")
+        if (cached) return JSON.parse(cached)
+      } catch (e) {}
+    }
+    return []
+  })
   const [hierarchy, setHierarchy] = useState<HierarchyGroup[]>([])
-  const [isInitialLoading, setIsInitialLoading] = useState(true)
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("nota_receipts_cache_v2")
+        if (cached && JSON.parse(cached).length > 0) return false
+      } catch (e) {}
+    }
+    return true
+  })
 
   // Dual-Admin Pending Approvals State
   const [pendingApprovals, setPendingApprovals] = useState<any[]>([])
@@ -259,17 +275,20 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
   // Fetch All Receipts from API (Initial & Background Sync)
   const fetchAllReceipts = async (silent = false) => {
-    if (!silent) setIsInitialLoading(true)
+    if (!silent && allReceipts.length === 0) setIsInitialLoading(true)
     try {
       const res = await fetch("/api/receipts")
       if (res.ok) {
         const data = await res.json()
         setAllReceipts(data)
+        try {
+          localStorage.setItem("nota_receipts_cache_v2", JSON.stringify(data))
+        } catch (e) {}
       }
     } catch (err) {
       console.error("Gagal mengambil riwayat nota:", err)
     } finally {
-      if (!silent) setIsInitialLoading(false)
+      setIsInitialLoading(false)
     }
   }
 

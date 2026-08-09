@@ -100,6 +100,27 @@ export function VerificationSplitScreen({
   const [targetItemIndexForCategory, setTargetItemIndexForCategory] = useState<number | null>(null)
   const [showRawOcr, setShowRawOcr] = useState(false)
 
+  // Lazy-load single receipt image on-demand when opening receipt detail/edit modal
+  const [lazyLoadedImage, setLazyLoadedImage] = useState<string | null>(null)
+  const [isImageLoading, setIsImageLoading] = useState<boolean>(false)
+
+  useEffect(() => {
+    if (editingReceiptId && !imagePreviewUrl) {
+      setIsImageLoading(true)
+      fetch(`/api/receipts/${editingReceiptId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.imageUrl) {
+            setLazyLoadedImage(data.imageUrl)
+          }
+        })
+        .catch((err) => console.error("Lazy load receipt image error:", err))
+        .finally(() => setIsImageLoading(false))
+    }
+  }, [editingReceiptId, imagePreviewUrl])
+
+  const activeDisplayImage = imagePreviewUrl || lazyLoadedImage
+
   // Fetch categories hierarchy on mount
   const fetchCategoryHierarchy = async () => {
     try {
@@ -543,22 +564,36 @@ export function VerificationSplitScreen({
 
             {/* Clickable Image Preview Box */}
             <div
-              onClick={() => setShowLightbox(true)}
+              onClick={() => activeDisplayImage && setShowLightbox(true)}
               className="relative min-h-[380px] max-h-[580px] overflow-hidden bg-slate-900 flex items-center justify-center p-4 cursor-zoom-in group"
             >
-              {/* eslint-disable-next-html-element */}
-              <img
-                src={imagePreviewUrl}
-                alt="Foto Struk Belanja"
-                className="max-w-full h-auto max-h-[520px] object-contain rounded-lg shadow-2xl group-hover:opacity-90 transition-opacity"
-              />
+              {activeDisplayImage ? (
+                /* eslint-disable-next-html-element */
+                <img
+                  src={activeDisplayImage}
+                  alt="Foto Struk Belanja"
+                  className="max-w-full h-auto max-h-[520px] object-contain rounded-lg shadow-2xl group-hover:opacity-90 transition-opacity"
+                />
+              ) : isImageLoading ? (
+                <div className="text-emerald-400 font-extrabold text-xs flex items-center gap-2">
+                  <RefreshCw className="w-5 h-5 animate-spin" /> Memuat Foto Struk Nota...
+                </div>
+              ) : (
+                <div className="text-slate-400 font-semibold text-xs text-center p-6 space-y-1">
+                  <ImageIcon className="w-8 h-8 mx-auto text-slate-600 mb-2" />
+                  <p>Foto struk tidak diload di awal.</p>
+                  <p className="text-[11px] text-slate-500">Klik "Fullscreen Zoom" atau buka foto jika tersedia.</p>
+                </div>
+              )}
 
               {/* Hover Overlay Hint */}
-              <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-2xs">
-                <span className="px-4 py-2 rounded-2xl bg-slate-900/90 text-white font-extrabold text-xs border border-slate-700 flex items-center gap-2 shadow-2xl">
-                  <Maximize2 className="w-4 h-4 text-emerald-400" /> Klik Untuk Pop-Up & Zoom Touch / Mouse
-                </span>
-              </div>
+              {activeDisplayImage && (
+                <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-2xs">
+                  <span className="px-4 py-2 rounded-2xl bg-slate-900/90 text-white font-extrabold text-xs border border-slate-700 flex items-center gap-2 shadow-2xl">
+                    <Maximize2 className="w-4 h-4 text-emerald-400" /> Klik Untuk Pop-Up & Zoom Touch / Mouse
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="p-3 bg-slate-50 border-t border-slate-200">

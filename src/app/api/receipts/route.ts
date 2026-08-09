@@ -3,11 +3,17 @@ import { supabase } from "@/lib/supabase"
 import { recordVerifiedReceiptLearning } from "@/lib/selfLearningEngine"
 import { getAdminUserFromRequest } from "@/lib/authHelper"
 import { getOrSeedCategories } from "@/lib/categories"
-
 import { compressBase64Image } from "@/lib/imageCompressor"
 
 const RECEIPT_LIST_SELECT =
   "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, createdAt, updatedAt, items:receipt_items(*)"
+
+let listCache: { key: string; data: any; timestamp: number } | null = null
+const LIST_CACHE_TTL = 5000 // 5 seconds cache
+
+export function invalidateReceiptsListCache() {
+  listCache = null
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,6 +23,15 @@ export async function GET(req: NextRequest) {
     const limit = searchParams.has("limit") || searchParams.has("take")
       ? Math.min(Math.max(Number(searchParams.get("limit") || searchParams.get("take")), 1), 1000)
       : undefined
+
+    const cacheKey = `${search}_${category}_${limit || 'all'}`
+    const now = Date.now()
+
+    if (listCache && listCache.key === cacheKey && now - listCache.timestamp < LIST_CACHE_TTL) {
+      const cachedResponse = NextResponse.json(listCache.data)
+      cachedResponse.headers.set("Cache-Control", "public, s-maxage=5, stale-while-revalidate=30")
+      return cachedResponse
+    }
 
     const rootKeyword = category ? category.split("/")[0].trim() : ""
 
@@ -105,7 +120,11 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    return NextResponse.json(normalizedReceipts)
+    listCache = { key: cacheKey, data: normalizedReceipts, timestamp: now }
+
+    const response = NextResponse.json(normalizedReceipts)
+    response.headers.set("Cache-Control", "public, s-maxage=5, stale-while-revalidate=30")
+    return response
   } catch (error: any) {
     console.error("GET Receipts Error:", error)
     return NextResponse.json({ error: "Gagal mengambil data nota" }, { status: 500 })
@@ -124,6 +143,8 @@ export async function POST(req: NextRequest) {
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: "Nota harus memiliki minimal 1 item produk" }, { status: 400 })
     }
+
+    invalidateReceiptsListCache()
 
     const isPersonal =
       paymentMethod === "Dana Pribadi Owner" || paymentMethod === "Talangan Karyawan"
@@ -193,6 +214,8 @@ export async function DELETE(req: NextRequest) {
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ error: "ID nota yang akan dihapus tidak valid" }, { status: 400 })
     }
+
+    invalidateReceiptsListCache()
 
     const { data: approval, error } = await supabase
       .from("pending_approvals")
