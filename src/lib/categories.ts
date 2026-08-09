@@ -25,9 +25,24 @@ export const DEFAULT_SEED_CATEGORIES = [
   },
 ]
 
+let cachedCategories: CategoryHierarchyItem[] | null = null
+let cacheTimestamp = 0
+const CACHE_TTL_MS = 60 * 1000 // 60 seconds cache
+
+export function invalidateCategoriesCache() {
+  cachedCategories = null
+  cacheTimestamp = 0
+}
+
 export async function getOrSeedCategories(): Promise<CategoryHierarchyItem[]> {
+  const now = Date.now()
+  if (cachedCategories && now - cacheTimestamp < CACHE_TTL_MS) {
+    return cachedCategories
+  }
+
   try {
     let customCats = await (db as any).customCategory.findMany({
+      select: { id: true, name: true, parentId: true },
       orderBy: { createdAt: "asc" },
     })
 
@@ -53,6 +68,7 @@ export async function getOrSeedCategories(): Promise<CategoryHierarchyItem[]> {
 
       // Re-fetch after seeding
       customCats = await (db as any).customCategory.findMany({
+        select: { id: true, name: true, parentId: true },
         orderBy: { createdAt: "asc" },
       })
     }
@@ -68,6 +84,8 @@ export async function getOrSeedCategories(): Promise<CategoryHierarchyItem[]> {
         .map((sub: any) => ({ id: sub.id, name: sub.name })),
     }))
 
+    cachedCategories = hierarchy
+    cacheTimestamp = now
     return hierarchy
   } catch (error) {
     console.error("Error in getOrSeedCategories:", error)

@@ -1,0 +1,38 @@
+name: Supabase Keep-Alive Ping
+
+on:
+  schedule:
+    # Runs at 00:00 UTC every 3 days to keep Supabase database active and prevent pausing
+    - cron: '0 0 */3 * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase & App Endpoint
+        env:
+          SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          APP_PING_URL: ${{ secrets.APP_PING_URL }}
+        run: |
+          echo "Executing Supabase Keep-Alive Cron..."
+
+          # 1. Direct query to Supabase REST API using efficient select and limit 1
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
+            echo "Pinging Supabase REST API directly with .select('id').limit(1)..."
+            curl -s -f -X GET \
+              -H "apikey: $SUPABASE_ANON_KEY" \
+              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+              "$SUPABASE_URL/rest/v1/scan_limits?select=id&limit=1" || echo "Direct Supabase ping response returned non-200"
+          else
+            echo "SUPABASE_URL / SUPABASE_ANON_KEY secrets not set, skipping direct REST ping."
+          fi
+
+          # 2. Ping deployed App API route /api/ping
+          if [ -n "$APP_PING_URL" ]; then
+            echo "Pinging App Ping Endpoint ($APP_PING_URL)..."
+            curl -s -f "$APP_PING_URL" || echo "App ping URL returned non-200"
+          else
+            echo "APP_PING_URL secret not set. You can set APP_PING_URL in repository secrets (e.g. https://your-domain.vercel.app/api/ping)."
+          fi

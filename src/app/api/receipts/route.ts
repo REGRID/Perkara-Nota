@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { recordVerifiedReceiptLearning } from "@/lib/selfLearningEngine"
 import { getAdminUserFromRequest } from "@/lib/authHelper"
+import { getOrSeedCategories } from "@/lib/categories"
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const search = searchParams.get("search") || ""
     const category = searchParams.get("category") || ""
+    const limit = searchParams.has("limit") || searchParams.has("take")
+      ? Math.min(Math.max(Number(searchParams.get("limit") || searchParams.get("take")), 1), 1000)
+      : undefined
 
     // Extract root keyword if category is e.g. "Bahan Baku" vs "Bahan Baku / Sembako"
     const rootKeyword = category ? category.split("/")[0].trim() : ""
@@ -50,6 +54,7 @@ export async function GET(req: NextRequest) {
             : {},
         ],
       },
+      take: limit,
       select: {
         id: true,
         merchantName: true,
@@ -70,12 +75,9 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    // Fetch current Custom Categories to map legacy category names (e.g. "Bahan Baku / Sembako" -> "Bahan Baku")
-    const customCats = await (db as any).customCategory.findMany({
-      where: { parentId: null },
-    })
-
-    const parentNames: string[] = customCats.map((c: any) => c.name)
+    // Fetch cached Custom Categories to map legacy category names
+    const categoryHierarchy = await getOrSeedCategories()
+    const parentNames: string[] = categoryHierarchy.map((c) => c.name)
 
     // Normalize item categories and strip legacy [Dibayar oleh: ...] from non-personal payment receipts
     const normalizedReceipts = receipts.map((r: any) => {
@@ -160,8 +162,10 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Continuous Self-Learning Engine: Record verified user input to educate AI for future receipts
-    await recordVerifiedReceiptLearning(merchantName, items)
+    // Continuous Self-Learning Engine: Record verified user input asynchronously (non-blocking for fast save response)
+    void recordVerifiedReceiptLearning(merchantName, items).catch((err) =>
+      console.warn("Background self-learning error:", err)
+    )
 
     return NextResponse.json(newReceipt, { status: 201 })
   } catch (error: any) {

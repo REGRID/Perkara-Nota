@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { getOrSeedCategories } from "@/lib/categories"
+import { getOrSeedCategories, invalidateCategoriesCache } from "@/lib/categories"
 
 export async function GET() {
   try {
@@ -8,6 +8,7 @@ export async function GET() {
     const allCategoryNames = hierarchy.map((h) => h.name)
 
     const customCats = await (db as any).customCategory.findMany({
+      select: { id: true, name: true, parentId: true, createdAt: true },
       orderBy: { createdAt: "asc" },
     })
 
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Nama kategori tidak boleh kosong" }, { status: 400 })
     }
 
+    invalidateCategoriesCache()
     // Ensure database has default categories seeded if empty
     await getOrSeedCategories()
 
@@ -48,13 +50,17 @@ export async function POST(req: NextRequest) {
       // 1. Try finding parent by database ID
       const parentById = await (db as any).customCategory.findFirst({
         where: { id: targetParentStr },
+        select: { id: true },
       })
 
       if (parentById) {
         resolvedParentId = parentById.id
       } else {
         // 2. Try finding parent by Name (case-insensitive)
-        const allParents = await (db as any).customCategory.findMany({ where: { parentId: null } })
+        const allParents = await (db as any).customCategory.findMany({
+          where: { parentId: null },
+          select: { id: true, name: true },
+        })
         const parentByName = allParents.find(
           (c: any) => c.name.toLowerCase().trim() === targetParentStr.toLowerCase().trim()
         )
@@ -77,15 +83,15 @@ export async function POST(req: NextRequest) {
     // Check if duplicate exists (case-insensitive)
     const siblings = await (db as any).customCategory.findMany({
       where: { parentId: resolvedParentId },
+      select: { id: true, name: true },
     })
 
     const existing = siblings.find(
       (c: any) => c.name.toLowerCase().trim() === cleanName.toLowerCase().trim()
     )
 
-    const updatedHierarchy = await getOrSeedCategories()
-
     if (existing) {
+      const updatedHierarchy = await getOrSeedCategories()
       return NextResponse.json({ ...existing, hierarchy: updatedHierarchy }, { status: 200 })
     }
 
@@ -96,6 +102,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    invalidateCategoriesCache()
     const finalHierarchy = await getOrSeedCategories()
     return NextResponse.json({ ...created, hierarchy: finalHierarchy }, { status: 201 })
   } catch (error: any) {

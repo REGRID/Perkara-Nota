@@ -3,26 +3,32 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Receipt {
-  id            String        @id @default(uuid())
-  merchantName  String        @default("Nota / Toko")
-  date          String        // YYYY-MM-DD format
-  imageUrl      String?       @db.Text
-  subtotal      Float         @default(0)
-  taxAmount     Float         @default(0)
-  totalAmount   Float         @default(0)
-  paymentMethod String        @default("Cash") // Cash, Transfer Bank, QRIS, Kredit / Debit, Tempo / Hutang
-  paymentStatus String        @default("Lunas") // Lunas, Belum Lunas / Tempo
-  note          String?           @db.Text
-  items         ReceiptItem[]
+  id               String            @id @default(uuid())
+  merchantName     String            @default("Nota / Toko")
+  date             String            // YYYY-MM-DD format
+  imageUrl         String?           @db.Text
+  subtotal         Float             @default(0)
+  taxAmount        Float             @default(0)
+  totalAmount      Float             @default(0)
+  paymentMethod    String            @default("Cash") // Cash, Transfer Bank, QRIS, Kredit / Debit, Tempo / Hutang
+  paymentStatus    String            @default("Lunas") // Lunas, Belum Lunas / Tempo
+  note             String?           @db.Text
+  items            ReceiptItem[]
   pendingApprovals PendingApproval[]
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
+  @@index([createdAt(sort: Desc)])
+  @@index([date])
+  @@index([merchantName])
+  @@index([paymentStatus])
+  @@index([paymentMethod])
   @@map("receipts")
 }
 
@@ -37,6 +43,11 @@ model ReceiptItem {
   quantity    Int      @default(1)
   createdAt   DateTime @default(now())
 
+  @@index([receiptId])
+  @@index([category])
+  @@index([subCategory])
+  @@index([name])
+  @@index([category, subCategory])
   @@map("receipt_items")
 }
 
@@ -49,6 +60,7 @@ model ScanLimit {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  @@index([ipAddress])
   @@map("scan_limits")
 }
 
@@ -59,6 +71,7 @@ model MerchantDictionary {
   verifiedCount Int      @default(1)
   updatedAt     DateTime @updatedAt
 
+  @@index([verifiedCount(sort: Desc)])
   @@map("merchant_dictionaries")
 }
 
@@ -72,6 +85,7 @@ model ProductDictionary {
   verifiedCount  Int      @default(1)
   updatedAt      DateTime @updatedAt
 
+  @@index([verifiedCount(sort: Desc)])
   @@map("product_dictionaries")
 }
 
@@ -81,6 +95,7 @@ model CustomCategory {
   parentId  String?
   createdAt DateTime @default(now())
 
+  @@index([parentId])
   @@map("custom_categories")
 }
 
@@ -97,6 +112,8 @@ model PendingApproval {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  @@index([status])
+  @@index([receiptId])
   @@map("pending_approvals")
 }
 

@@ -91,11 +91,21 @@ export async function getLearnedKnowledgeContext(): Promise<string> {
     const topMerchants = await db.merchantDictionary.findMany({
       orderBy: { verifiedCount: "desc" },
       take: 10,
+      select: {
+        cleanName: true,
+        verifiedCount: true,
+      },
     })
 
     const topProducts = await db.productDictionary.findMany({
       orderBy: { verifiedCount: "desc" },
       take: 15,
+      select: {
+        verifiedName: true,
+        category: true,
+        subCategory: true,
+        lastKnownPrice: true,
+      },
     })
 
     if (topMerchants.length === 0 && topProducts.length === 0) {
@@ -168,7 +178,13 @@ export async function matchItemWithLearnedMemory(
 
     const allLearnedProducts = await db.productDictionary.findMany({
       orderBy: { verifiedCount: "desc" },
-      take: 300,
+      take: 100,
+      select: {
+        rawName: true,
+        verifiedName: true,
+        category: true,
+        subCategory: true,
+      },
     })
 
     if (!allLearnedProducts || allLearnedProducts.length === 0) return null
