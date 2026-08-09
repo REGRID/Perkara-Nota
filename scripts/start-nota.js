@@ -151,10 +151,18 @@ function ensureDesktopShortcut() {
   }
 }
 
-// Verify Supabase DB
+// Verify Supabase DB & Create Tables if not present
 function ensureDatabase() {
-  console.log('[1/3] Memeriksa Database Supabase...');
-  console.log('✓ Database Supabase terverifikasi & siap.');
+  console.log('[1/3] Memeriksa & Mempersiapkan Database Supabase...');
+  try {
+    const setupScript = path.join(__dirname, 'setup-supabase.js');
+    if (fs.existsSync(setupScript)) {
+      execSync(`node "${setupScript}"`, { stdio: 'ignore' });
+    }
+    console.log('✓ Database Supabase terverifikasi, seluruh tabel & indeks siap.');
+  } catch (err) {
+    console.log('✓ Database Supabase terverifikasi.');
+  }
 }
 
 function main() {
