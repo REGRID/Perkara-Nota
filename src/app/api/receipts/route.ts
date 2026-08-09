@@ -156,6 +156,8 @@ export async function POST(req: NextRequest) {
 
     const compressedImageUrl = await compressBase64Image(imageUrl)
 
+    const nowIso = new Date().toISOString()
+
     const { data: newReceipt, error: receiptErr } = await supabase
       .from("receipts")
       .insert({
@@ -168,6 +170,8 @@ export async function POST(req: NextRequest) {
         paymentMethod: paymentMethod || "Cash",
         paymentStatus: paymentStatus || "Lunas",
         note: cleanedNote,
+        createdAt: nowIso,
+        updatedAt: nowIso,
       })
       .select("id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, createdAt, updatedAt")
       .single()

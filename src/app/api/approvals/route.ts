@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from("pending_approvals")
-      .select("*, receipt:receipts(id, merchantName, date, totalAmount, paymentStatus, paymentMethod)")
+      .select("*, receipt:receipts(*, items:receipt_items(*))")
       .order("createdAt", { ascending: false })
 
     if (status !== "ALL") {

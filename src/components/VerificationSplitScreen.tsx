@@ -54,6 +54,10 @@ interface VerificationSplitScreenProps {
   onSkipBatch?: () => void
   onSaveSuccess: () => void
   onCancel: () => void
+  onDraftUpdate?: (
+    updatedResult: ParsedReceiptResult,
+    extraFields: { paymentMethod: string; paymentStatus: string; note: string }
+  ) => void
 }
 
 export interface CategoryGroup {
@@ -85,6 +89,7 @@ export function VerificationSplitScreen({
   onSkipBatch,
   onSaveSuccess,
   onCancel,
+  onDraftUpdate,
 }: VerificationSplitScreenProps) {
   const [mobileView, setMobileView] = useState<"form" | "image">("form")
 
@@ -327,6 +332,27 @@ export function VerificationSplitScreen({
   // Auto-calculated subtotal from items
   const itemsSubtotal = items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0)
   const calculatedTotal = itemsSubtotal + (Number(taxAmount) || 0)
+
+  // Continuously sync edited form values to parent draft
+  useEffect(() => {
+    if (onDraftUpdate) {
+      onDraftUpdate(
+        {
+          merchantName,
+          date,
+          subtotal: itemsSubtotal,
+          taxAmount,
+          totalAmount: calculatedTotal,
+          items,
+        },
+        {
+          paymentMethod,
+          paymentStatus,
+          note: note ? (paidByPerson ? `[Dibayar oleh: ${paidByPerson}] ${note}` : note) : (paidByPerson ? `[Dibayar oleh: ${paidByPerson}]` : ""),
+        }
+      )
+    }
+  }, [merchantName, date, items, taxAmount, calculatedTotal, itemsSubtotal, paymentMethod, paymentStatus, note, paidByPerson, onDraftUpdate])
 
   // Item List Handlers
   const handleItemChange = (index: number, field: keyof ParsedItem, value: any) => {

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useRef } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import { extractTextFromReceipt } from "@/lib/ocr"
 import { ReceiptImageUpload, BatchFileItem } from "@/components/ReceiptImageUpload"
 import { VerificationSplitScreen } from "@/components/VerificationSplitScreen"
@@ -66,6 +66,17 @@ export default function HomePage() {
     fetchQuota()
   }, [isProcessing])
 
+  // Helper to clear verification draft for a specific admin user
+  const clearVerificationDraft = useCallback((targetUser?: string) => {
+    const userToClear = targetUser || adminUser
+    if (userToClear) {
+      try {
+        const key = `nota_verification_draft_${userToClear.trim().toLowerCase()}`
+        localStorage.removeItem(key)
+      } catch (e) {}
+    }
+  }, [adminUser])
+
   // Initial Auth Check on Mount
   useEffect(() => {
     const checkSession = async () => {
@@ -97,6 +108,89 @@ export default function HomePage() {
     checkSession()
   }, [])
 
+  // Restore Per-Account Active Verification Draft State on Session Load or Admin Account Switch
+  useEffect(() => {
+    if (!isAuthenticated || !adminUser) return
+
+    const cleanUser = adminUser.trim().toLowerCase()
+    const draftKey = `nota_verification_draft_${cleanUser}`
+
+    try {
+      const savedDraftStr = localStorage.getItem(draftKey)
+      if (savedDraftStr) {
+        const draft = JSON.parse(savedDraftStr)
+        if (draft && draft.parsedResult && (draft.imagePreviewUrl || draft.editingReceiptId)) {
+          console.log(`[Verification Session] Auto-restoring active draft for account: ${cleanUser}`)
+          setImagePreviewUrl(draft.imagePreviewUrl || null)
+          setRawOcrText(draft.rawOcrText || "")
+          setParsedResult(draft.parsedResult)
+          setParsingMode(draft.parsingMode || "gemini_multimodal_vision")
+          setEditingReceiptId(draft.editingReceiptId || null)
+          setExistingPaymentMethod(draft.existingPaymentMethod || "Cash")
+          setExistingPaymentStatus(draft.existingPaymentStatus || "Lunas")
+          setExistingNote(draft.existingNote || "")
+          if (draft.batchQueue && Array.isArray(draft.batchQueue)) {
+            setBatchQueue(draft.batchQueue)
+            setBatchIndex(draft.batchIndex || 0)
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Could not restore verification draft:", e)
+    }
+  }, [isAuthenticated, adminUser])
+
+  // Auto-Persist Active Verification Draft Per-Account on Form Edits or Refresh
+  useEffect(() => {
+    if (!adminUser) return
+    const cleanUser = adminUser.trim().toLowerCase()
+    const draftKey = `nota_verification_draft_${cleanUser}`
+
+    if (imagePreviewUrl || (parsedResult && editingReceiptId)) {
+      const draftData = {
+        imagePreviewUrl,
+        rawOcrText,
+        parsedResult,
+        parsingMode,
+        editingReceiptId,
+        existingPaymentMethod,
+        existingPaymentStatus,
+        existingNote,
+        batchQueue,
+        batchIndex,
+        savedAt: new Date().toISOString(),
+      }
+      try {
+        localStorage.setItem(draftKey, JSON.stringify(draftData))
+      } catch (e) {
+        console.warn("Could not save verification draft:", e)
+      }
+    }
+  }, [
+    adminUser,
+    imagePreviewUrl,
+    rawOcrText,
+    parsedResult,
+    parsingMode,
+    editingReceiptId,
+    existingPaymentMethod,
+    existingPaymentStatus,
+    existingNote,
+    batchQueue,
+    batchIndex,
+  ])
+
+  // Handle continuous form changes from VerificationSplitScreen
+  const handleDraftUpdate = useCallback((
+    updatedResult: ParsedReceiptResult,
+    extraFields: { paymentMethod: string; paymentStatus: string; note: string }
+  ) => {
+    setParsedResult(updatedResult)
+    setExistingPaymentMethod(extraFields.paymentMethod)
+    setExistingPaymentStatus(extraFields.paymentStatus)
+    setExistingNote(extraFields.note)
+  }, [])
+
   const handleLogout = async () => {
     if (isProcessing) return
     try {
@@ -123,6 +217,7 @@ export default function HomePage() {
     setQuotaError(null)
     setOcrStatus("")
     setOcrPercent(0)
+    clearVerificationDraft(adminUser)
   }
 
   // Fetch with retry helper for resilient network calls
@@ -294,6 +389,7 @@ export default function HomePage() {
       setParsedResult(null)
       setEditingReceiptId(null)
       setActiveTab("history")
+      clearVerificationDraft(adminUser)
     }
   }
 
@@ -311,6 +407,7 @@ export default function HomePage() {
     setImagePreviewUrl(null)
     setParsedResult(null)
     setEditingReceiptId(null)
+    clearVerificationDraft(adminUser)
   }
 
   // Render Auth Gate Guard
@@ -436,6 +533,7 @@ export default function HomePage() {
             onSkipBatch={handleSkipBatch}
             onSaveSuccess={handleSaveSuccess}
             onCancel={handleCancelVerification}
+            onDraftUpdate={handleDraftUpdate}
           />
         ) : activeTab === "scan" ? (
           <div className="space-y-6 animate-in fade-in duration-300">

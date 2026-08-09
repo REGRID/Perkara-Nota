@@ -43,6 +43,7 @@ import {
   Filter,
   User,
   ShieldCheck,
+  Image as ImageIcon,
 } from "lucide-react"
 import {
   ResponsiveContainer,
@@ -147,6 +148,30 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   const [showApprovalModal, setShowApprovalModal] = useState(false)
   const [isProcessingApproval, setIsProcessingApproval] = useState(false)
   const [rejectionReason, setRejectionReason] = useState("")
+
+  // Approval Receipt Image On-Demand Cache State
+  const [approvalImageUrls, setApprovalImageUrls] = useState<Record<string, string>>({})
+  const [loadingApprovalImageId, setLoadingApprovalImageId] = useState<string | null>(null)
+
+  const fetchReceiptImageForApproval = async (receiptId: string) => {
+    if (approvalImageUrls[receiptId]) return approvalImageUrls[receiptId]
+    setLoadingApprovalImageId(receiptId)
+    try {
+      const res = await fetch(`/api/receipts/${receiptId}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data && data.imageUrl) {
+          setApprovalImageUrls((prev) => ({ ...prev, [receiptId]: data.imageUrl }))
+          return data.imageUrl
+        }
+      }
+    } catch (e) {
+      console.error("Fetch approval receipt image error:", e)
+    } finally {
+      setLoadingApprovalImageId(null)
+    }
+    return null
+  }
 
   // Toggle Analytics Charts display & Chart View Type
   const [showCharts, setShowCharts] = useState(false)
@@ -2933,20 +2958,24 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                   </p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {pendingApprovals.map((reqItem) => {
-                    const isSelfRequest = reqItem.requestedBy === currentAdminUser
+                    const isSelfRequest = (reqItem.requestedBy || "").trim().toLowerCase() === (currentAdminUser || "").trim().toLowerCase()
                     let payloadObj: any = {}
                     try {
                       payloadObj = JSON.parse(reqItem.payload || "{}")
                     } catch {}
+
+                    const targetReceipt = reqItem.receipt || null
+                    const receiptImage = targetReceipt?.imageUrl || payloadObj.imageUrl || approvalImageUrls[reqItem.receiptId] || null
 
                     return (
                       <div
                         key={reqItem.id}
                         className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 shadow-2xs"
                       >
-                        <div className="flex items-center justify-between gap-2">
+                        {/* Header Badge & Date */}
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-200/80 pb-2.5">
                           <span
                             className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
                               reqItem.actionType === "DELETE" || reqItem.actionType === "BULK_DELETE"
@@ -2958,7 +2987,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                           >
                             {reqItem.actionType === "DELETE" && "Permintaan Hapus Nota"}
                             {reqItem.actionType === "BULK_DELETE" && `Permintaan Hapus Massal (${payloadObj.ids?.length || 0} Nota)`}
-                            {reqItem.actionType === "EDIT" && "Permintaan Edit Nota"}
+                            {reqItem.actionType === "EDIT" && "Permintaan Edit Data Nota"}
                             {reqItem.actionType === "SETTLE" && "Permintaan Pelunasan Nota"}
                           </span>
 
@@ -2967,29 +2996,148 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                           </span>
                         </div>
 
-                        <div className="text-xs space-y-1 text-slate-700">
-                          <p className="font-bold flex items-center gap-1">
-                            <User className="w-3.5 h-3.5 text-emerald-600" />
-                            Diajukan oleh: <span className="font-extrabold text-slate-900">{reqItem.requestedBy}</span>
-                          </p>
-                          {reqItem.receipt && (
-                            <p className="text-slate-600">
-                              Target Nota: <strong className="text-slate-900">{reqItem.receipt.merchantName}</strong> ({reqItem.receipt.date}) — Rp {reqItem.receipt.totalAmount?.toLocaleString("id-ID")}
+                        {/* Request Summary & Admin Info */}
+                        <div className="text-xs space-y-2 text-slate-700">
+                          <div className="flex items-center justify-between">
+                            <p className="font-bold flex items-center gap-1.5 text-slate-900">
+                              <User className="w-4 h-4 text-emerald-600" />
+                              Diajukan oleh Admin: <span className="font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">{reqItem.requestedBy}</span>
                             </p>
+                          </div>
+
+                          {targetReceipt && (
+                            <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-1">
+                              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">Target Nota Asli:</span>
+                              <div className="flex items-center justify-between font-bold text-slate-900 text-xs">
+                                <span>{targetReceipt.merchantName} ({targetReceipt.date})</span>
+                                <span className="font-mono text-emerald-700">Rp {Number(targetReceipt.totalAmount || 0).toLocaleString("id-ID")}</span>
+                              </div>
+                            </div>
                           )}
-                          {reqItem.actionType === "EDIT" && payloadObj.merchantName && (
-                            <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-[11px] space-y-1 mt-1">
-                              <p className="font-extrabold text-slate-800">Usulan Perubahan Edit Data:</p>
-                              <p>Toko/Merchant: {payloadObj.merchantName}</p>
-                              <p>Total Nota Baru: Rp {Number(payloadObj.totalAmount || 0).toLocaleString("id-ID")}</p>
-                              <p>Jumlah Item Barang: {payloadObj.items?.length || 0} produk</p>
+
+                          {/* Foto Nota Fisik Asli Section */}
+                          <div className="bg-white p-3 rounded-2xl border border-slate-200 space-y-2">
+                            <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                              <span className="flex items-center gap-1.5">
+                                <ImageIcon className="w-4 h-4 text-blue-600" />
+                                Foto Nota Fisik Asli
+                              </span>
+                              {receiptImage && (
+                                <button
+                                  type="button"
+                                  onClick={() => setLightboxImageUrl(receiptImage)}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] flex items-center gap-1 shadow-2xs"
+                                >
+                                  <Maximize2 className="w-3 h-3" /> Zoom Lightbox
+                                </button>
+                              )}
+                            </div>
+
+                            {receiptImage ? (
+                              <div
+                                onClick={() => setLightboxImageUrl(receiptImage)}
+                                className="relative max-h-48 overflow-hidden rounded-xl bg-slate-900 flex items-center justify-center cursor-zoom-in p-2 border border-slate-300 group"
+                              >
+                                {/* eslint-disable-next-html-element */}
+                                <img
+                                  src={receiptImage}
+                                  alt="Foto Nota Asli"
+                                  className="max-h-44 object-contain rounded-lg shadow-md group-hover:opacity-90 transition-opacity"
+                                />
+                                <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-bold text-xs">
+                                  Klik Untuk Zoom Lightbox
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="p-3 bg-slate-100 rounded-xl text-center text-slate-500 text-xs font-medium space-y-1">
+                                <p>Foto nota fisik tidak disertakan di thumbnail.</p>
+                                {targetReceipt?.id && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const fetchedUrl = await fetchReceiptImageForApproval(targetReceipt.id)
+                                      if (fetchedUrl) setLightboxImageUrl(fetchedUrl)
+                                      else alert("Foto nota fisik tidak ditemukan.")
+                                    }}
+                                    className="px-3 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-bold"
+                                  >
+                                    {loadingApprovalImageId === targetReceipt.id ? "Memuat Foto..." : "Muat & Buka Foto Nota Asli"}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* RINCIAN PERUBAHAN EDIT DATA (SIDE-BY-SIDE DIFF) */}
+                          {reqItem.actionType === "EDIT" && (
+                            <div className="bg-white p-3 rounded-2xl border border-slate-200 space-y-2 text-xs">
+                              <span className="font-black text-slate-900 uppercase tracking-wider text-[11px] block border-b border-slate-100 pb-1">
+                                🔍 Perbandingan Perubahan Data Edit:
+                              </span>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                {/* Column Left: Data Saat Ini */}
+                                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                                  <span className="font-extrabold text-slate-500 uppercase text-[10px] block">Data Saat Ini (Database):</span>
+                                  <p><strong>Toko:</strong> {targetReceipt?.merchantName || "-"}</p>
+                                  <p><strong>Tanggal:</strong> {targetReceipt?.date || "-"}</p>
+                                  <p><strong>Total:</strong> Rp {Number(targetReceipt?.totalAmount || 0).toLocaleString("id-ID")}</p>
+                                  <p><strong>Metode:</strong> {targetReceipt?.paymentMethod || "Cash"}</p>
+                                  <p><strong>Status:</strong> {targetReceipt?.paymentStatus || "Lunas"}</p>
+                                  {targetReceipt?.items && (
+                                    <div className="pt-1 border-t border-slate-200">
+                                      <span className="font-bold block text-[10px]">Item Produk ({targetReceipt.items.length}):</span>
+                                      <ul className="list-disc pl-3 text-[10.5px] space-y-0.5 text-slate-600">
+                                        {targetReceipt.items.map((i: any, idx: number) => (
+                                          <li key={idx}>{i.name} (x{i.quantity}) — Rp {Number(i.price * i.quantity).toLocaleString("id-ID")}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Column Right: Usulan Data Baru */}
+                                <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 space-y-1 text-emerald-950">
+                                  <span className="font-extrabold text-emerald-700 uppercase text-[10px] block">Usulan Data Baru (Draft):</span>
+                                  <p><strong>Toko:</strong> <span className="font-bold text-emerald-900">{payloadObj.merchantName || "-"}</span></p>
+                                  <p><strong>Tanggal:</strong> <span className="font-bold text-emerald-900">{payloadObj.date || "-"}</span></p>
+                                  <p><strong>Total Baru:</strong> <span className="font-mono font-bold text-emerald-700">Rp {Number(payloadObj.totalAmount || 0).toLocaleString("id-ID")}</span></p>
+                                  <p><strong>Metode:</strong> {payloadObj.paymentMethod || "Cash"}</p>
+                                  <p><strong>Status:</strong> {payloadObj.paymentStatus || "Lunas"}</p>
+                                  {payloadObj.items && Array.isArray(payloadObj.items) && (
+                                    <div className="pt-1 border-t border-emerald-200">
+                                      <span className="font-bold block text-[10px]">Item Produk Baru ({payloadObj.items.length}):</span>
+                                      <ul className="list-disc pl-3 text-[10.5px] space-y-0.5 text-emerald-900 font-medium">
+                                        {payloadObj.items.map((i: any, idx: number) => (
+                                          <li key={idx}>{i.name} (x{i.quantity || 1}) — Rp {Number((i.price || 0) * (i.quantity || 1)).toLocaleString("id-ID")}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {reqItem.actionType === "SETTLE" && (
+                            <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-xs text-emerald-950 space-y-1">
+                              <span className="font-bold block">Usulan Pelunasan / Reimbursement Nota:</span>
+                              <p>Status Pembayaran akan diubah dari <strong>{targetReceipt?.paymentStatus || "Belum Direimburse"}</strong> menjadi <strong className="text-emerald-700">LUNAS</strong>.</p>
+                            </div>
+                          )}
+
+                          {(reqItem.actionType === "DELETE" || reqItem.actionType === "BULK_DELETE") && (
+                            <div className="bg-red-50 p-3 rounded-xl border border-red-200 text-xs text-red-900 space-y-1">
+                              <span className="font-bold block">⚠️ Peringatan Penghapusan Nota:</span>
+                              <p>Nota di atas akan <strong>dihapus secara permanen</strong> dari database Supabase jika Anda menyetujui permintaan ini.</p>
                             </div>
                           )}
                         </div>
 
-                        <div className="pt-2 border-t border-slate-200 flex items-center justify-end gap-2">
+                        {/* Action Control Footer Buttons */}
+                        <div className="pt-2.5 border-t border-slate-200 flex items-center justify-end gap-2">
                           {isSelfRequest ? (
-                            <span className="text-[11px] font-bold text-amber-700 bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200">
+                            <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200">
                               Menunggu Verifikasi Admin Lain (Self-Approval Dilarang)
                             </span>
                           ) : (
@@ -2998,7 +3146,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                                 type="button"
                                 disabled={isProcessingApproval}
                                 onClick={() => handleRejectRequest(reqItem.id)}
-                                className="px-3.5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 font-extrabold text-xs transition-all disabled:opacity-50"
+                                className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 font-extrabold text-xs transition-all disabled:opacity-50"
                               >
                                 Tolak
                               </button>
@@ -3131,6 +3279,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             </div>
           </div>
         </div>
+      )}
+
+      {/* FULLSCREEN INTERACTIVE LIGHTBOX FOR RECEIPT PHOTO */}
+      {lightboxImageUrl && (
+        <ImageInteractiveLightbox
+          imageUrl={lightboxImageUrl}
+          onClose={() => setLightboxImageUrl(null)}
+        />
       )}
     </div>
   )
