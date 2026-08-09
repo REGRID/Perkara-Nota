@@ -15,8 +15,25 @@ export default function HomePage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const [adminUser, setAdminUser] = useState<string>("rama")
 
-  const [activeTab, setActiveTab] = useState<"scan" | "history">("scan")
+  const [activeTab, setActiveTab] = useState<"scan" | "history">(() => {
+    if (typeof window !== "undefined") {
+      const savedUser = localStorage.getItem("nota_admin_user") || "rama"
+      const key = `nota_active_tab_${savedUser.toLowerCase()}`
+      const savedTab = localStorage.getItem(key) || localStorage.getItem("nota_active_tab")
+      if (savedTab === "scan" || savedTab === "history") return savedTab as "scan" | "history"
+    }
+    return "scan"
+  })
   const [showSettingsModal, setShowSettingsModal] = useState(false)
+
+  // Auto-Persist Active Navigation Tab Per-Account
+  useEffect(() => {
+    if (typeof window !== "undefined" && adminUser) {
+      const key = `nota_active_tab_${adminUser.trim().toLowerCase()}`
+      localStorage.setItem(key, activeTab)
+      localStorage.setItem("nota_active_tab", activeTab)
+    }
+  }, [activeTab, adminUser])
 
   // Scanning State
   const [isProcessing, setIsProcessing] = useState(false)
@@ -108,22 +125,41 @@ export default function HomePage() {
     checkSession()
   }, [])
 
+  // Browser Close / Refresh Warning Protection during Scan & Verification
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isProcessing || imagePreviewUrl || parsedResult) {
+        e.preventDefault()
+        e.returnValue = "Proses verifikasi/scan nota sedang berjalan. Yakin ingin menutup atau merefresh halaman?"
+        return e.returnValue
+      }
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload)
+  }, [isProcessing, imagePreviewUrl, parsedResult])
+
   // Restore Per-Account Active Verification Draft State on Session Load or Admin Account Switch
   useEffect(() => {
     if (!isAuthenticated || !adminUser) return
 
     const cleanUser = adminUser.trim().toLowerCase()
     const draftKey = `nota_verification_draft_${cleanUser}`
+    const savedTabKey = `nota_active_tab_${cleanUser}`
 
     try {
+      const savedTab = localStorage.getItem(savedTabKey)
+      if (savedTab === "scan" || savedTab === "history") {
+        setActiveTab(savedTab as "scan" | "history")
+      }
+
       const savedDraftStr = localStorage.getItem(draftKey)
       if (savedDraftStr) {
         const draft = JSON.parse(savedDraftStr)
-        if (draft && draft.parsedResult && (draft.imagePreviewUrl || draft.editingReceiptId)) {
+        if (draft && (draft.parsedResult || draft.imagePreviewUrl || draft.editingReceiptId)) {
           console.log(`[Verification Session] Auto-restoring active draft for account: ${cleanUser}`)
           setImagePreviewUrl(draft.imagePreviewUrl || null)
           setRawOcrText(draft.rawOcrText || "")
-          setParsedResult(draft.parsedResult)
+          setParsedResult(draft.parsedResult || null)
           setParsingMode(draft.parsingMode || "gemini_multimodal_vision")
           setEditingReceiptId(draft.editingReceiptId || null)
           setExistingPaymentMethod(draft.existingPaymentMethod || "Cash")
@@ -133,6 +169,16 @@ export default function HomePage() {
             setBatchQueue(draft.batchQueue)
             setBatchIndex(draft.batchIndex || 0)
           }
+
+          // If session was closed mid-scan without parsedResult, re-trigger extraction automatically
+          if (draft.isProcessing && !draft.parsedResult && draft.imagePreviewUrl) {
+            const queueToUse = draft.batchQueue && draft.batchQueue.length > 0
+              ? draft.batchQueue
+              : [{ file: null, base64: draft.imagePreviewUrl }]
+            setTimeout(() => {
+              processBatchItem(draft.batchIndex || 0, queueToUse)
+            }, 300)
+          }
         }
       }
     } catch (e) {
@@ -140,13 +186,13 @@ export default function HomePage() {
     }
   }, [isAuthenticated, adminUser])
 
-  // Auto-Persist Active Verification Draft Per-Account on Form Edits or Refresh
+  // Auto-Persist Active Verification Draft Per-Account on Form Edits, Scanning, or Refresh
   useEffect(() => {
     if (!adminUser) return
     const cleanUser = adminUser.trim().toLowerCase()
     const draftKey = `nota_verification_draft_${cleanUser}`
 
-    if (imagePreviewUrl || (parsedResult && editingReceiptId)) {
+    if (imagePreviewUrl || isProcessing || (parsedResult && editingReceiptId)) {
       const draftData = {
         imagePreviewUrl,
         rawOcrText,
@@ -158,6 +204,7 @@ export default function HomePage() {
         existingNote,
         batchQueue,
         batchIndex,
+        isProcessing,
         savedAt: new Date().toISOString(),
       }
       try {
@@ -178,6 +225,7 @@ export default function HomePage() {
     existingNote,
     batchQueue,
     batchIndex,
+    isProcessing,
   ])
 
   // Handle continuous form changes from VerificationSplitScreen
@@ -342,18 +390,39 @@ export default function HomePage() {
     processBatchItem(0, batch)
   }
 
-  const handleEditReceipt = (receipt: ReceiptData) => {
-    setEditingReceiptId(receipt.id)
+  const handleEditReceipt = async (receipt: ReceiptData) => {
+    let targetReceipt = receipt
+
+    // Fetch full receipt details (including original imageUrl) if not populated
+    if (!targetReceipt.imageUrl) {
+      try {
+        const res = await fetch(`/api/receipts/${receipt.id}`)
+        if (res.ok) {
+          const fullData = await res.json()
+          if (fullData && fullData.id) {
+            targetReceipt = fullData
+          }
+        }
+      } catch (err) {
+        console.error("Fetch full receipt for edit error:", err)
+      }
+    }
+
+    const previewUrl =
+      targetReceipt.imageUrl ||
+      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><rect width='400' height='400' fill='%230f172a'/><text x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2334d399' font-family='sans-serif' font-size='16' font-weight='bold'>EDIT NOTA</text></svg>"
+
+    setEditingReceiptId(targetReceipt.id)
     setBatchQueue([])
-    setImagePreviewUrl(receipt.imageUrl || "")
+    setImagePreviewUrl(previewUrl)
     setRawOcrText("")
     setParsedResult({
-      merchantName: receipt.merchantName,
-      date: receipt.date,
-      subtotal: receipt.subtotal || receipt.totalAmount - (receipt.taxAmount || 0),
-      taxAmount: receipt.taxAmount || 0,
-      totalAmount: receipt.totalAmount,
-      items: receipt.items.map((it) => ({
+      merchantName: targetReceipt.merchantName,
+      date: targetReceipt.date,
+      subtotal: targetReceipt.subtotal || targetReceipt.totalAmount - (targetReceipt.taxAmount || 0),
+      taxAmount: targetReceipt.taxAmount || 0,
+      totalAmount: targetReceipt.totalAmount,
+      items: (targetReceipt.items || []).map((it) => ({
         name: it.name,
         category: it.category,
         subCategory: it.subCategory || "Umum",
@@ -361,9 +430,9 @@ export default function HomePage() {
         quantity: it.quantity,
       })),
     })
-    setExistingPaymentMethod(receipt.paymentMethod || "Cash")
-    setExistingPaymentStatus(receipt.paymentStatus || "Lunas")
-    setExistingNote(receipt.note || "")
+    setExistingPaymentMethod(targetReceipt.paymentMethod || "Cash")
+    setExistingPaymentStatus(targetReceipt.paymentStatus || "Lunas")
+    setExistingNote(targetReceipt.note || "")
     setParsingMode("saved_receipt_edit")
   }
 

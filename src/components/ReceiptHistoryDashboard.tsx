@@ -173,6 +173,29 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     return null
   }
 
+  // Selected Detail Modal State
+  const [selectedReceipt, setSelectedReceipt] = useState<ReceiptData | null>(null)
+  const [isLoadingDetailImage, setIsLoadingDetailImage] = useState(false)
+
+  // Lazy-load original receipt photo when receipt detail modal opens
+  useEffect(() => {
+    if (selectedReceipt && selectedReceipt.id && !selectedReceipt.imageUrl) {
+      setIsLoadingDetailImage(true)
+      fetch(`/api/receipts/${selectedReceipt.id}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && data.imageUrl) {
+            setSelectedReceipt((prev) => (prev && prev.id === selectedReceipt.id ? { ...prev, imageUrl: data.imageUrl } : prev))
+            setAllReceipts((prev) => prev.map((r) => (r.id === selectedReceipt.id ? { ...r, imageUrl: data.imageUrl } : r)))
+          }
+        })
+        .catch((e) => console.error("Gagal memuat foto nota detail:", e))
+        .finally(() => setIsLoadingDetailImage(false))
+    }
+  }, [selectedReceipt?.id])
+
+  const [deletingReceipt, setDeletingReceipt] = useState<ReceiptData | null>(null)
+
   // Toggle Analytics Charts display & Chart View Type
   const [showCharts, setShowCharts] = useState(false)
   const [chartMode, setChartMode] = useState<"category" | "daily" | "topSubCategories">("category")
@@ -204,8 +227,6 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   const [showDataOptionsModal, setShowDataOptionsModal] = useState(false)
 
   // Selected Detail Modal State
-  const [selectedReceipt, setSelectedReceipt] = useState<ReceiptData | null>(null)
-  const [deletingReceipt, setDeletingReceipt] = useState<ReceiptData | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
 
   // Multi-Selection State for Bulk Actions
@@ -2641,10 +2662,33 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                       </span>
                     </div>
                   </>
+                ) : isLoadingDetailImage ? (
+                  <div className="text-center text-emerald-400 space-y-2 p-6">
+                    <RefreshCw className="w-10 h-10 mx-auto animate-spin" />
+                    <p className="text-xs font-bold">Memuat foto nota fisik dari database...</p>
+                  </div>
                 ) : (
-                  <div className="text-center text-slate-500 space-y-2">
+                  <div className="text-center text-slate-500 space-y-2 p-6">
                     <ReceiptIcon className="w-12 h-12 mx-auto" />
-                    <p className="text-xs">Tidak ada foto nota tersimpan</p>
+                    <p className="text-xs font-medium">Tidak ada foto nota tersimpan</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLoadingDetailImage(true)
+                        fetch(`/api/receipts/${selectedReceipt.id}`)
+                          .then((res) => (res.ok ? res.json() : null))
+                          .then((data) => {
+                            if (data && data.imageUrl) {
+                              setSelectedReceipt((prev) => (prev && prev.id === selectedReceipt.id ? { ...prev, imageUrl: data.imageUrl } : prev))
+                            }
+                          })
+                          .catch(() => {})
+                          .finally(() => setIsLoadingDetailImage(false))
+                      }}
+                      className="mt-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-[11px] font-bold transition-colors"
+                    >
+                      Coba Muat Ulang Foto
+                    </button>
                   </div>
                 )}
               </div>
@@ -2736,12 +2780,22 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 {onEditReceipt && (
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       const r = selectedReceipt
                       setSelectedReceipt(null)
-                      onEditReceipt(r)
+                      let fullR = r
+                      if (!fullR.imageUrl) {
+                        try {
+                          const res = await fetch(`/api/receipts/${r.id}`)
+                          if (res.ok) {
+                            const fetched = await res.json()
+                            if (fetched && fetched.id) fullR = fetched
+                          }
+                        } catch (e) {}
+                      }
+                      onEditReceipt(fullR)
                     }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition-colors border border-blue-200"
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition-colors border border-blue-200 cursor-pointer"
                   >
                     <Edit className="w-4 h-4" /> Edit Ulang Data Nota
                   </button>
