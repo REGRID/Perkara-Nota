@@ -51,7 +51,6 @@ function updateEnvFilePassword(username: string, newPass: string) {
   try {
     const cleanUser = username.trim().toLowerCase()
 
-    // 1. Update running process env
     if (cleanUser === "rama" || cleanUser === (process.env.ADMIN_A_USERNAME || "rama").toLowerCase()) {
       process.env.ADMIN_A_PASSWORD = newPass
     }
@@ -59,7 +58,6 @@ function updateEnvFilePassword(username: string, newPass: string) {
       process.env.ADMIN_B_PASSWORD = newPass
     }
 
-    // 2. Rewrite .env.local file on disk
     const envPath = path.join(process.cwd(), ".env.local")
     if (fs.existsSync(envPath)) {
       let content = fs.readFileSync(envPath, "utf-8")
@@ -79,21 +77,14 @@ function updateEnvFilePassword(username: string, newPass: string) {
 }
 
 /**
- * Fetch active single password for a given admin username (rama / refo).
- * Returns custom changed password if exists, or default credential.
- * Returns null if username is unknown.
+ * Fetch active password for a given admin username (rama / refo).
+ * Supabase `admin_accounts` table is the PRIMARY source of truth.
  */
 export async function getAdminPassword(username: string): Promise<string | null> {
   try {
     const cleanUser = username.trim().toLowerCase()
 
-    // 1. Check Local Persistent / Memory File
-    const localPasses = getLocalPasswords()
-    if (localPasses[cleanUser]) {
-      return localPasses[cleanUser].trim()
-    }
-
-    // 2. Check Supabase Database Table
+    // 1. Primary: Check Supabase Database Table `admin_accounts`
     try {
       const { data: dbAccount } = await supabase
         .from("admin_accounts")
@@ -105,10 +96,16 @@ export async function getAdminPassword(username: string): Promise<string | null>
         return dbAccount.password.trim()
       }
     } catch (e) {
-      // fallback if table query error
+      console.warn("Supabase admin_accounts query notice:", e)
     }
 
-    // 3. Fallback to DEFAULT_ADMINS if not customized yet
+    // 2. Secondary: Check Local Memory / Persistent JSON file
+    const localPasses = getLocalPasswords()
+    if (localPasses[cleanUser]) {
+      return localPasses[cleanUser].trim()
+    }
+
+    // 3. Fallback: Default Credentials / Environment Variables
     const defaultItem = DEFAULT_ADMINS.find((a) => a.username === cleanUser)
     if (defaultItem) {
       return defaultItem.defaultPass.trim()
@@ -130,7 +127,6 @@ export async function getAdminPassword(username: string): Promise<string | null>
 
 /**
  * Validate admin credentials for a given username and password.
- * Strictly compares against the single active password for the ID.
  */
 export async function validateAdminCredentials(username: string, inputPass: string): Promise<boolean> {
   try {
@@ -152,7 +148,7 @@ export async function validateAdminCredentials(username: string, inputPass: stri
 
 /**
  * Update password for a given admin username (rama / refo).
- * Permanently updates local memory, .env.local file, admin_passwords.json, and Supabase DB.
+ * Writes directly to Supabase DB `admin_accounts` table as primary, and updates local fallbacks.
  */
 export async function updateAdminPassword(username: string, newPass: string): Promise<boolean> {
   try {
@@ -161,19 +157,7 @@ export async function updateAdminPassword(username: string, newPass: string): Pr
 
     if (!cleanUser || !cleanPass) return false
 
-    // 1. Update in-memory DEFAULT_ADMINS
-    const def = DEFAULT_ADMINS.find((a) => a.username === cleanUser)
-    if (def) {
-      def.defaultPass = cleanPass
-    }
-
-    // 2. Save to local storage & in-memory map
-    setLocalPassword(cleanUser, cleanPass)
-
-    // 3. Update .env.local file & process.env on disk
-    updateEnvFilePassword(cleanUser, cleanPass)
-
-    // 4. Attempt Supabase DB sync
+    // 1. Primary: Update or Insert into Supabase `admin_accounts` table
     try {
       const { data: existing } = await supabase
         .from("admin_accounts")
@@ -184,7 +168,10 @@ export async function updateAdminPassword(username: string, newPass: string): Pr
       if (existing) {
         await supabase
           .from("admin_accounts")
-          .update({ password: cleanPass, updatedAt: new Date().toISOString() })
+          .update({
+            password: cleanPass,
+            updatedAt: new Date().toISOString(),
+          })
           .eq("id", existing.id)
       } else {
         await supabase
@@ -195,8 +182,17 @@ export async function updateAdminPassword(username: string, newPass: string): Pr
           })
       }
     } catch (dbErr) {
-      console.warn("DB password sync notice (saved to local persistent file and .env):", dbErr)
+      console.warn("Supabase admin_accounts update warning:", dbErr)
     }
+
+    // 2. Secondary: Update local in-memory & file fallbacks
+    const def = DEFAULT_ADMINS.find((a) => a.username === cleanUser)
+    if (def) {
+      def.defaultPass = cleanPass
+    }
+
+    setLocalPassword(cleanUser, cleanPass)
+    updateEnvFilePassword(cleanUser, cleanPass)
 
     return true
   } catch (error) {

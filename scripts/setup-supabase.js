@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
 
-// Read .env.local or .env
 function loadEnv() {
   const envFiles = ['.env.local', '.env'];
   for (const file of envFiles) {
@@ -26,13 +25,10 @@ const connectionString =
   process.env.DATABASE_URL ||
   "postgresql://postgres.pvdumvhgnnfdxsijslmz:Xinora088258@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres";
 
-// Standardize SSL connection for Supabase Cloud
 const cleanUrl = connectionString.replace(/\?.*$/, "");
 
 async function main() {
   console.log('[Supabase Setup] Connecting to Supabase PostgreSQL...');
-  console.log(`[Supabase Setup] Target: ${cleanUrl.replace(/:[^:@]+@/, ':****@')}`);
-
   const client = new Client({
     connectionString: cleanUrl,
     ssl: { rejectUnauthorized: false },
@@ -48,58 +44,36 @@ async function main() {
     }
 
     const sqlScript = fs.readFileSync(schemaPath, 'utf-8');
-    console.log('[Supabase Setup] Executing DDL Schema script (Creating tables & indexes)...');
+    console.log('[Supabase Setup] Executing DDL Schema script...');
 
-    await client.query(sqlScript);
-    console.log('✓ All 8 Supabase Tables & 16 B-Tree Indexes created successfully!');
+    await client.query(`
+      CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+      ${sqlScript}
+      ALTER TABLE public.admin_accounts ALTER COLUMN id SET DEFAULT gen_random_uuid();
+      ALTER TABLE public.custom_categories ALTER COLUMN id SET DEFAULT gen_random_uuid();
+      ALTER TABLE public.merchant_dictionaries ALTER COLUMN id SET DEFAULT gen_random_uuid();
+      ALTER TABLE public.product_dictionaries ALTER COLUMN id SET DEFAULT gen_random_uuid();
+      ALTER TABLE public.pending_approvals ALTER COLUMN id SET DEFAULT gen_random_uuid();
+      ALTER TABLE public.receipts ALTER COLUMN id SET DEFAULT gen_random_uuid();
+      ALTER TABLE public.receipt_items ALTER COLUMN id SET DEFAULT gen_random_uuid();
+      ALTER TABLE public.scan_limits ALTER COLUMN id SET DEFAULT gen_random_uuid();
+    `);
+    console.log('✓ All 8 Supabase Tables & 16 B-Tree Indexes created/verified with gen_random_uuid()!');
 
-    // Seed default categories if custom_categories is empty
-    const checkCatRes = await client.query('SELECT COUNT(*) FROM public.custom_categories;');
-    const catCount = parseInt(checkCatRes.rows[0].count, 10);
-
-    if (catCount === 0) {
-      console.log('[Supabase Setup] Seeding default categories into custom_categories...');
-      const seedGroups = [
-        {
-          name: "Bahan Baku",
-          subs: ["Bumbu & Rempah", "Daging & Seafood", "Sayur & Buah", "Susu & Olahan", "Tepung & Minyak", "Minuman & Sirup"],
-        },
-        {
-          name: "Operasional & Perlengkapan",
-          subs: ["Kemasan & Plastik", "Alat Tulis & Kasir", "Kebersihan & Sanitasi", "Gas & Listrik", "Perlengkapan Toko"],
-        },
-        {
-          name: "Peralatan & Aset",
-          subs: ["Alat Dapur", "Mesin & Elektronik", "Furniture & Interior"],
-        },
-        {
-          name: "Lain-lain",
-          subs: ["Umum", "Jasa & Ongkir"],
-        },
-      ];
-
-      for (const group of seedGroups) {
-        const pRes = await client.query(
-          'INSERT INTO public.custom_categories (name, "parentId") VALUES ($1, NULL) RETURNING id;',
-          [group.name]
-        );
-        const parentId = pRes.rows[0].id;
-        for (const subName of group.subs) {
-          await client.query(
-            'INSERT INTO public.custom_categories (name, "parentId") VALUES ($1, $2);',
-            [subName, parentId]
-          );
-        }
-      }
-      console.log('✓ Default categories seeded successfully!');
-    }
+    // Seed default admin accounts if empty
+    await client.query(`
+      INSERT INTO public.admin_accounts (username, password)
+      VALUES 
+        ('rama', 'adminnota123'),
+        ('refo', 'adminnota456')
+      ON CONFLICT (username) DO NOTHING;
+    `);
 
     console.log('\n======================================================');
-    console.log('🎉 SUPABASE DATABASE SETUP COMPLETE! ALL TABLES ARE READY.');
+    console.log('🎉 SUPABASE DATABASE & ADMIN ACCOUNTS READY!');
     console.log('======================================================\n');
   } catch (err) {
     console.error('❌ Supabase Setup Error:', err);
-    process.exit(1);
   } finally {
     await client.end();
   }
