@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { checkRateLimit, incrementRateLimit, normalizeIp } from "@/lib/rateLimiter"
 import { getLearnedKnowledgeContext, matchItemWithLearnedMemory } from "@/lib/selfLearningEngine"
-import { db } from "@/lib/db"
 import { getOrSeedCategories } from "@/lib/categories"
 import { GoogleGenAI } from "@google/genai"
 

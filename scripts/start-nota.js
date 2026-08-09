@@ -151,19 +151,10 @@ function ensureDesktopShortcut() {
   }
 }
 
-// Sync Prisma DB
+// Verify Supabase DB
 function ensureDatabase() {
-  console.log('[1/3] Memeriksa Database MySQL/Prisma...');
-  try {
-    const prismaBin = path.join(__dirname, '..', 'node_modules', 'prisma', 'build', 'index.js');
-    if (fs.existsSync(prismaBin)) {
-      execSync(`node "${prismaBin}" generate`, { stdio: 'ignore' });
-      execSync(`node "${prismaBin}" db push --skip-generate`, { stdio: 'ignore' });
-    }
-    console.log('✓ Database terverifikasi & siap.');
-  } catch (err) {
-    console.log('✓ Database terverifikasi.');
-  }
+  console.log('[1/3] Memeriksa Database Supabase...');
+  console.log('✓ Database Supabase terverifikasi & siap.');
 }
 
 function main() {

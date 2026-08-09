@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest } from "@/lib/authHelper"
 
 export async function GET(req: NextRequest) {
@@ -7,24 +7,22 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const status = searchParams.get("status") || "PENDING"
 
-    const approvals = await (db as any).pendingApproval.findMany({
-      where: status === "ALL" ? {} : { status },
-      include: {
-        receipt: {
-          select: {
-            id: true,
-            merchantName: true,
-            date: true,
-            totalAmount: true,
-            paymentStatus: true,
-            paymentMethod: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    })
+    let query = supabase
+      .from("pending_approvals")
+      .select("*, receipt:receipts(id, merchantName, date, totalAmount, paymentStatus, paymentMethod)")
+      .order("createdAt", { ascending: false })
 
-    return NextResponse.json(approvals)
+    if (status !== "ALL") {
+      query = query.eq("status", status)
+    }
+
+    const { data: approvals, error } = await query
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    return NextResponse.json(approvals || [])
   } catch (error: any) {
     console.error("GET Approvals Error:", error)
     return NextResponse.json({ error: "Gagal mengambil daftar verifikasi" }, { status: 500 })
@@ -41,15 +39,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Tipe aksi dan payload data wajib diisi" }, { status: 400 })
     }
 
-    const newApproval = await (db as any).pendingApproval.create({
-      data: {
+    const { data: newApproval, error } = await supabase
+      .from("pending_approvals")
+      .insert({
         receiptId: receiptId || null,
         actionType, // DELETE, EDIT, SETTLE, BULK_DELETE
         requestedBy: adminUser,
         status: "PENDING",
         payload: typeof payload === "string" ? payload : JSON.stringify(payload),
-      },
-    })
+      })
+      .select("*")
+      .single()
+
+    if (error) {
+      throw new Error(error.message)
+    }
 
     return NextResponse.json({
       success: true,

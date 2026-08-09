@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest } from "@/lib/authHelper"
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
-    const receipt = await db.receipt.findUnique({
-      where: { id },
-      include: { items: true },
-    })
+    const { data: receipt, error } = await supabase
+      .from("receipts")
+      .select("*, items:receipt_items(*)")
+      .eq("id", id)
+      .single()
 
-    if (!receipt) {
+    if (error || !receipt) {
       return NextResponse.json({ error: "Nota tidak ditemukan" }, { status: 404 })
     }
 
@@ -36,16 +37,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "Nota harus memiliki minimal 1 item produk" }, { status: 400 })
     }
 
-    // Dual-Admin Control: Create Pending Approval for EDIT action
-    const approval = await (db as any).pendingApproval.create({
-      data: {
+    // Dual-Admin Control: Create Pending Approval for EDIT action in Supabase
+    const { data: approval, error } = await supabase
+      .from("pending_approvals")
+      .insert({
         receiptId: id,
         actionType: "EDIT",
         requestedBy: adminUser,
         status: "PENDING",
         payload: JSON.stringify(body),
-      },
-    })
+      })
+      .select("*")
+      .single()
+
+    if (error) {
+      throw new Error(error.message)
+    }
 
     return NextResponse.json({
       pendingApproval: true,
@@ -63,16 +70,22 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const { id } = await params
     const adminUser = getAdminUserFromRequest(req)
 
-    // Dual-Admin Control: Create Pending Approval for DELETE action
-    const approval = await (db as any).pendingApproval.create({
-      data: {
+    // Dual-Admin Control: Create Pending Approval for DELETE action in Supabase
+    const { data: approval, error } = await supabase
+      .from("pending_approvals")
+      .insert({
         receiptId: id,
         actionType: "DELETE",
         requestedBy: adminUser,
         status: "PENDING",
         payload: JSON.stringify({ id }),
-      },
-    })
+      })
+      .select("*")
+      .single()
+
+    if (error) {
+      throw new Error(error.message)
+    }
 
     return NextResponse.json({
       pendingApproval: true,

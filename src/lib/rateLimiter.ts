@@ -1,4 +1,4 @@
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
 
 export const DAILY_SCAN_LIMIT = 999999
 
@@ -25,9 +25,7 @@ export function normalizeIp(ipAddress?: string | null): string {
 }
 
 /**
- * Checks rate limit using persistent database tracking.
- * Normalizes IP and tracks daily usage window reliably across page refreshes.
- * Note: Internal scan limit is disabled as long as the API token is functional.
+ * Checks rate limit using persistent Supabase database tracking.
  */
 export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult> {
   const now = new Date()
@@ -37,26 +35,27 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
     const tomorrow = new Date(now)
     tomorrow.setHours(tomorrow.getHours() + 24)
 
-    let limitRecord = await db.scanLimit.findFirst({
-      where: { ipAddress: cleanIp },
-    })
+    const { data: existingRecord } = await supabase
+      .from("scan_limits")
+      .select("*")
+      .eq("ipAddress", cleanIp)
+      .maybeSingle()
+
+    let limitRecord = existingRecord
 
     if (!limitRecord) {
-      try {
-        limitRecord = await db.scanLimit.create({
-          data: {
-            ipAddress: cleanIp,
-            scanCount: 0,
-            lastScanAt: now,
-            resetAt: tomorrow,
-          },
+      const { data: newRecord } = await supabase
+        .from("scan_limits")
+        .insert({
+          ipAddress: cleanIp,
+          scanCount: 0,
+          lastScanAt: now.toISOString(),
+          resetAt: tomorrow.toISOString(),
         })
-      } catch (createErr) {
-        // Race condition: another request created the record concurrently
-        limitRecord = await db.scanLimit.findFirst({
-          where: { ipAddress: cleanIp },
-        })
-      }
+        .select("*")
+        .maybeSingle()
+
+      limitRecord = newRecord || existingRecord
     }
 
     if (!limitRecord) {
@@ -68,30 +67,35 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
       }
     }
 
+    const resetAtDate = new Date(limitRecord.resetAt)
+
     // Reset daily counter if 24 hours elapsed
-    if (now > limitRecord.resetAt) {
+    if (now > resetAtDate) {
       const nextReset = new Date(now)
       nextReset.setHours(nextReset.getHours() + 24)
 
-      limitRecord = await db.scanLimit.update({
-        where: { id: limitRecord.id },
-        data: {
+      const { data: updated } = await supabase
+        .from("scan_limits")
+        .update({
           scanCount: 0,
-          resetAt: nextReset,
-        },
-      })
+          resetAt: nextReset.toISOString(),
+        })
+        .eq("id", limitRecord.id)
+        .select("*")
+        .maybeSingle()
+
+      if (updated) limitRecord = updated
     }
 
-    const current = limitRecord.scanCount
+    const current = limitRecord.scanCount || 0
     const remaining = Math.max(DAILY_SCAN_LIMIT - current, 0)
-    // Internal rate limit disabled: allow scanning as long as API token works
     const allowed = true
 
     return {
       allowed,
       remaining,
       current,
-      resetAt: limitRecord.resetAt,
+      resetAt: new Date(limitRecord.resetAt || tomorrow),
     }
   } catch (error) {
     console.error("Rate limiter DB error:", error)
@@ -105,7 +109,7 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
 }
 
 /**
- * Atomically increments the scan count in the database for the normalized IP.
+ * Atomically increments the scan count in Supabase for the normalized IP.
  */
 export async function incrementRateLimit(ipAddress: string): Promise<number> {
   const cleanIp = normalizeIp(ipAddress)
@@ -113,40 +117,39 @@ export async function incrementRateLimit(ipAddress: string): Promise<number> {
   const tomorrow = new Date(now.getTime() + 86400000)
 
   try {
-    let record = await db.scanLimit.findFirst({
-      where: { ipAddress: cleanIp },
-    })
+    const { data: record } = await supabase
+      .from("scan_limits")
+      .select("*")
+      .eq("ipAddress", cleanIp)
+      .maybeSingle()
 
     if (!record) {
-      try {
-        record = await db.scanLimit.create({
-          data: {
-            ipAddress: cleanIp,
-            scanCount: 1,
-            lastScanAt: now,
-            resetAt: tomorrow,
-          },
+      const { data: created } = await supabase
+        .from("scan_limits")
+        .insert({
+          ipAddress: cleanIp,
+          scanCount: 1,
+          lastScanAt: now.toISOString(),
+          resetAt: tomorrow.toISOString(),
         })
-        return Math.max(DAILY_SCAN_LIMIT - record.scanCount, 0)
-      } catch (err) {
-        record = await db.scanLimit.findFirst({
-          where: { ipAddress: cleanIp },
-        })
-      }
+        .select("*")
+        .maybeSingle()
+
+      return Math.max(DAILY_SCAN_LIMIT - (created?.scanCount || 1), 0)
     }
 
-    if (record) {
-      const updated = await db.scanLimit.update({
-        where: { id: record.id },
-        data: {
-          scanCount: { increment: 1 },
-          lastScanAt: now,
-        },
+    const newCount = (record.scanCount || 0) + 1
+    const { data: updated } = await supabase
+      .from("scan_limits")
+      .update({
+        scanCount: newCount,
+        lastScanAt: now.toISOString(),
       })
-      return Math.max(DAILY_SCAN_LIMIT - updated.scanCount, 0)
-    }
+      .eq("id", record.id)
+      .select("*")
+      .maybeSingle()
 
-    return DAILY_SCAN_LIMIT - 1
+    return Math.max(DAILY_SCAN_LIMIT - (updated?.scanCount || newCount), 0)
   } catch (error) {
     console.error("Error incrementing rate limit count:", error)
     return DAILY_SCAN_LIMIT - 1

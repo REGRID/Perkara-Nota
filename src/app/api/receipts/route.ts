@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
 import { recordVerifiedReceiptLearning } from "@/lib/selfLearningEngine"
 import { getAdminUserFromRequest } from "@/lib/authHelper"
 import { getOrSeedCategories } from "@/lib/categories"
@@ -13,67 +13,58 @@ export async function GET(req: NextRequest) {
       ? Math.min(Math.max(Number(searchParams.get("limit") || searchParams.get("take")), 1), 1000)
       : undefined
 
-    // Extract root keyword if category is e.g. "Bahan Baku" vs "Bahan Baku / Sembako"
     const rootKeyword = category ? category.split("/")[0].trim() : ""
 
-    const receipts = await db.receipt.findMany({
-      where: {
-        AND: [
-          search
-            ? {
-                OR: [
-                  { merchantName: { contains: search, mode: "insensitive" } },
-                  { note: { contains: search, mode: "insensitive" } },
-                  { paymentMethod: { contains: search, mode: "insensitive" } },
-                  {
-                    items: {
-                      some: {
-                        OR: [
-                          { name: { contains: search, mode: "insensitive" } },
-                          { category: { contains: search, mode: "insensitive" } },
-                          { subCategory: { contains: search, mode: "insensitive" } },
-                        ],
-                      },
-                    },
-                  },
-                ],
-              }
-            : {},
-          category
-            ? {
-                items: {
-                  some: {
-                    OR: [
-                      { category: { contains: category, mode: "insensitive" } },
-                      { subCategory: { contains: category, mode: "insensitive" } },
-                      { category: { contains: rootKeyword, mode: "insensitive" } },
-                    ],
-                  },
-                },
-              }
-            : {},
-        ],
-      },
-      take: limit,
-      select: {
-        id: true,
-        merchantName: true,
-        date: true,
-        imageUrl: true,
-        subtotal: true,
-        taxAmount: true,
-        totalAmount: true,
-        paymentMethod: true,
-        paymentStatus: true,
-        note: true,
-        createdAt: true,
-        updatedAt: true,
-        items: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    })
+    let query = supabase
+      .from("receipts")
+      .select("*, items:receipt_items(*)")
+      .order("createdAt", { ascending: false })
+
+    if (limit) {
+      query = query.limit(limit)
+    }
+
+    const { data: rawReceipts, error } = await query
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    let receipts = rawReceipts || []
+
+    // In-memory filter for complex relational search/category criteria
+    if (search || category) {
+      const searchLower = search.toLowerCase().trim()
+      const categoryLower = category.toLowerCase().trim()
+      const rootLower = rootKeyword.toLowerCase().trim()
+
+      receipts = receipts.filter((r: any) => {
+        const matchesSearch = !searchLower || (
+          (r.merchantName || "").toLowerCase().includes(searchLower) ||
+          (r.note || "").toLowerCase().includes(searchLower) ||
+          (r.paymentMethod || "").toLowerCase().includes(searchLower) ||
+          (r.items || []).some((i: any) =>
+            (i.name || "").toLowerCase().includes(searchLower) ||
+            (i.category || "").toLowerCase().includes(searchLower) ||
+            (i.subCategory || "").toLowerCase().includes(searchLower)
+          )
+        )
+
+        const matchesCategory = !categoryLower || (
+          (r.items || []).some((i: any) => {
+            const itemCat = (i.category || "").toLowerCase()
+            const itemSub = (i.subCategory || "").toLowerCase()
+            return (
+              itemCat.includes(categoryLower) ||
+              itemSub.includes(categoryLower) ||
+              (rootLower && itemCat.includes(rootLower))
+            )
+          })
+        )
+
+        return matchesSearch && matchesCategory
+      })
+    }
 
     // Fetch cached Custom Categories to map legacy category names
     const categoryHierarchy = await getOrSeedCategories()
@@ -91,7 +82,7 @@ export async function GET(req: NextRequest) {
       return {
         ...r,
         note: cleanedNote,
-        items: r.items.map((item: any) => {
+        items: (r.items || []).map((item: any) => {
           const itemCat = item.category || "Lain-lain"
           const itemRoot = itemCat.split("/")[0].trim().toLowerCase()
 
@@ -136,8 +127,9 @@ export async function POST(req: NextRequest) {
         : note.replace(/\[Dibayar oleh: [^\]]+\]\s*/g, "").trim() || null
       : null
 
-    const newReceipt = await db.receipt.create({
-      data: {
+    const { data: newReceipt, error: receiptErr } = await supabase
+      .from("receipts")
+      .insert({
         merchantName: merchantName || "Nota / Toko",
         date: date,
         imageUrl: imageUrl || null,
@@ -147,27 +139,39 @@ export async function POST(req: NextRequest) {
         paymentMethod: paymentMethod || "Cash",
         paymentStatus: paymentStatus || "Lunas",
         note: cleanedNote,
-        items: {
-          create: items.map((it: any) => ({
-            name: it.name || "Item",
-            category: it.category ? it.category.split("/")[0].trim() : "Lain-lain",
-            subCategory: it.subCategory || "Umum",
-            price: Number(it.price) || 0,
-            quantity: Number(it.quantity) || 1,
-          })),
-        },
-      },
-      include: {
-        items: true,
-      },
-    })
+      })
+      .select("*")
+      .single()
 
-    // Continuous Self-Learning Engine: Record verified user input asynchronously (non-blocking for fast save response)
+    if (receiptErr || !newReceipt) {
+      throw new Error(receiptErr?.message || "Gagal menyimpan nota ke database")
+    }
+
+    const itemsToCreate = items.map((it: any) => ({
+      receiptId: newReceipt.id,
+      name: it.name || "Item",
+      category: it.category ? it.category.split("/")[0].trim() : "Lain-lain",
+      subCategory: it.subCategory || "Umum",
+      price: Number(it.price) || 0,
+      quantity: Number(it.quantity) || 1,
+    }))
+
+    const { data: createdItems } = await supabase
+      .from("receipt_items")
+      .insert(itemsToCreate)
+      .select("*")
+
+    const fullReceipt = {
+      ...newReceipt,
+      items: createdItems || [],
+    }
+
+    // Continuous Self-Learning Engine: Record verified user input asynchronously (non-blocking)
     void recordVerifiedReceiptLearning(merchantName, items).catch((err) =>
       console.warn("Background self-learning error:", err)
     )
 
-    return NextResponse.json(newReceipt, { status: 201 })
+    return NextResponse.json(fullReceipt, { status: 201 })
   } catch (error: any) {
     console.error("POST Receipt Error:", error)
     return NextResponse.json({ error: error.message || "Gagal menyimpan nota ke database" }, { status: 500 })
@@ -182,14 +186,20 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "ID nota yang akan dihapus tidak valid" }, { status: 400 })
     }
 
-    const approval = await (db as any).pendingApproval.create({
-      data: {
+    const { data: approval, error } = await supabase
+      .from("pending_approvals")
+      .insert({
         actionType: "BULK_DELETE",
         requestedBy: adminUser,
         status: "PENDING",
         payload: JSON.stringify({ ids }),
-      },
-    })
+      })
+      .select("*")
+      .single()
+
+    if (error) {
+      throw new Error(error.message)
+    }
 
     return NextResponse.json({
       pendingApproval: true,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
 import { getOrSeedCategories, invalidateCategoriesCache } from "@/lib/categories"
 
 export async function GET() {
@@ -7,10 +7,12 @@ export async function GET() {
     const hierarchy = await getOrSeedCategories()
     const allCategoryNames = hierarchy.map((h) => h.name)
 
-    const customCats = await (db as any).customCategory.findMany({
-      select: { id: true, name: true, parentId: true, createdAt: true },
-      orderBy: { createdAt: "asc" },
-    })
+    const { data: customCatsData } = await supabase
+      .from("custom_categories")
+      .select("id, name, parentId, createdAt")
+      .order("createdAt", { ascending: true })
+
+    const customCats = customCatsData || []
 
     return NextResponse.json({
       allCategories: allCategoryNames,
@@ -39,7 +41,6 @@ export async function POST(req: NextRequest) {
     }
 
     invalidateCategoriesCache()
-    // Ensure database has default categories seeded if empty
     await getOrSeedCategories()
 
     let resolvedParentId: string | null = null
@@ -48,20 +49,22 @@ export async function POST(req: NextRequest) {
       const targetParentStr = parentId.trim()
 
       // 1. Try finding parent by database ID
-      const parentById = await (db as any).customCategory.findFirst({
-        where: { id: targetParentStr },
-        select: { id: true },
-      })
+      const { data: parentById } = await supabase
+        .from("custom_categories")
+        .select("id")
+        .eq("id", targetParentStr)
+        .maybeSingle()
 
       if (parentById) {
         resolvedParentId = parentById.id
       } else {
         // 2. Try finding parent by Name (case-insensitive)
-        const allParents = await (db as any).customCategory.findMany({
-          where: { parentId: null },
-          select: { id: true, name: true },
-        })
-        const parentByName = allParents.find(
+        const { data: allParents } = await supabase
+          .from("custom_categories")
+          .select("id, name")
+          .is("parentId", null)
+
+        const parentByName = (allParents || []).find(
           (c: any) => c.name.toLowerCase().trim() === targetParentStr.toLowerCase().trim()
         )
 
@@ -69,24 +72,34 @@ export async function POST(req: NextRequest) {
           resolvedParentId = parentByName.id
         } else {
           // 3. Create parent category if not found
-          const createdParent = await (db as any).customCategory.create({
-            data: {
+          const { data: createdParent } = await supabase
+            .from("custom_categories")
+            .insert({
               name: targetParentStr,
               parentId: null,
-            },
-          })
-          resolvedParentId = createdParent.id
+            })
+            .select("id")
+            .single()
+
+          if (createdParent) resolvedParentId = createdParent.id
         }
       }
     }
 
     // Check if duplicate exists (case-insensitive)
-    const siblings = await (db as any).customCategory.findMany({
-      where: { parentId: resolvedParentId },
-      select: { id: true, name: true },
-    })
+    let siblingQuery = supabase
+      .from("custom_categories")
+      .select("id, name")
 
-    const existing = siblings.find(
+    if (resolvedParentId) {
+      siblingQuery = siblingQuery.eq("parentId", resolvedParentId)
+    } else {
+      siblingQuery = siblingQuery.is("parentId", null)
+    }
+
+    const { data: siblings } = await siblingQuery
+
+    const existing = (siblings || []).find(
       (c: any) => c.name.toLowerCase().trim() === cleanName.toLowerCase().trim()
     )
 
@@ -95,12 +108,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...existing, hierarchy: updatedHierarchy }, { status: 200 })
     }
 
-    const created = await (db as any).customCategory.create({
-      data: {
+    const { data: created, error: createErr } = await supabase
+      .from("custom_categories")
+      .insert({
         name: cleanName,
         parentId: resolvedParentId,
-      },
-    })
+      })
+      .select("*")
+      .single()
+
+    if (createErr) {
+      throw new Error(createErr.message)
+    }
 
     invalidateCategoriesCache()
     const finalHierarchy = await getOrSeedCategories()

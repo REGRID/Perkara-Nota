@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
 import * as XLSX from "xlsx"
 
 export async function GET(req: NextRequest) {
@@ -8,60 +8,62 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get("search") || ""
     const category = searchParams.get("category") || ""
     const format = searchParams.get("format") || "xlsx"
-    const order = searchParams.get("order") || "asc" // default chronological order asc
+    const order = searchParams.get("order") || "asc"
 
     const sortDirection = order === "desc" ? "desc" : "asc"
     const rootKeyword = category ? category.split("/")[0].trim() : ""
 
-    const receipts = await db.receipt.findMany({
-      where: {
-        AND: [
-          search
-            ? {
-                OR: [
-                  { merchantName: { contains: search } },
-                  { note: { contains: search } },
-                  { paymentMethod: { contains: search } },
-                  {
-                    items: {
-                      some: {
-                        OR: [
-                          { name: { contains: search } },
-                          { category: { contains: search } },
-                          { subCategory: { contains: search } },
-                        ],
-                      },
-                    },
-                  },
-                ],
-              }
-            : {},
-          category
-            ? {
-                items: {
-                  some: {
-                    OR: [
-                      { category: { contains: category } },
-                      { subCategory: { contains: category } },
-                      { category: { contains: rootKeyword } },
-                    ],
-                  },
-                },
-              }
-            : {},
-        ],
-      },
-      include: {
-        items: {
-          orderBy: {
-            createdAt: "asc",
-          },
-        },
-      },
-      orderBy: [
-        { date: sortDirection },
-        { createdAt: sortDirection },
-      ],
+    const { data: rawReceipts, error } = await supabase
+      .from("receipts")
+      .select("*, items:receipt_items(*)")
+      .order("date", { ascending: sortDirection === "asc" })
+      .order("createdAt", { ascending: sortDirection === "asc" })
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    let receipts = rawReceipts || []
+
+    // Filter search and category criteria
+    if (search || category) {
+      const searchLower = search.toLowerCase().trim()
+      const categoryLower = category.toLowerCase().trim()
+      const rootLower = rootKeyword.toLowerCase().trim()
+
+      receipts = receipts.filter((r: any) => {
+        const matchesSearch = !searchLower || (
+          (r.merchantName || "").toLowerCase().includes(searchLower) ||
+          (r.note || "").toLowerCase().includes(searchLower) ||
+          (r.paymentMethod || "").toLowerCase().includes(searchLower) ||
+          (r.items || []).some((i: any) =>
+            (i.name || "").toLowerCase().includes(searchLower) ||
+            (i.category || "").toLowerCase().includes(searchLower) ||
+            (i.subCategory || "").toLowerCase().includes(searchLower)
+          )
+        )
+
+        const matchesCategory = !categoryLower || (
+          (r.items || []).some((i: any) => {
+            const itemCat = (i.category || "").toLowerCase()
+            const itemSub = (i.subCategory || "").toLowerCase()
+            return (
+              itemCat.includes(categoryLower) ||
+              itemSub.includes(categoryLower) ||
+              (rootLower && itemCat.includes(rootLower))
+            )
+          })
+        )
+
+        return matchesSearch && matchesCategory
+      })
+    }
+
+    // Sort items inside each receipt by createdAt asc
+    receipts.forEach((r: any) => {
+      if (r.items && Array.isArray(r.items)) {
+        r.items.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      }
     })
 
     // If format === "statement", generate Bank Statement (Rekening Koran) Excel / CSV
@@ -69,8 +71,8 @@ export async function GET(req: NextRequest) {
       let runningBalance = 0
       const statementRows = receipts.map((r: any, idx: number) => {
         runningBalance += r.totalAmount
-        const categorySummary = Array.from(new Set(r.items.map((i: any) => i.category))).join(", ")
-        const itemsSummary = r.items.slice(0, 3).map((i: any) => i.name).join(", ") + (r.items.length > 3 ? "..." : "")
+        const categorySummary = Array.from(new Set((r.items || []).map((i: any) => i.category))).join(", ")
+        const itemsSummary = (r.items || []).slice(0, 3).map((i: any) => i.name).join(", ") + ((r.items || []).length > 3 ? "..." : "")
 
         return {
           "No.": idx + 1,
@@ -131,7 +133,7 @@ export async function GET(req: NextRequest) {
       "Subtotal (Rp)": r.subtotal,
       "Pajak / PPN (Rp)": r.taxAmount,
       "Total Netto (Rp)": r.totalAmount,
-      "Jumlah Item": r.items.length,
+      "Jumlah Item": (r.items || []).length,
       "Catatan": r.note || "",
       "ID Nota": r.id,
     }))
@@ -140,7 +142,7 @@ export async function GET(req: NextRequest) {
     const itemsData: any[] = []
     let itemIdx = 1
     receipts.forEach((r: any) => {
-      r.items.forEach((it: any) => {
+      ;(r.items || []).forEach((it: any) => {
         itemsData.push({
           "No.": itemIdx++,
           "Tanggal Nota": r.date,
@@ -161,7 +163,7 @@ export async function GET(req: NextRequest) {
     const summarySheet = XLSX.utils.json_to_sheet(summaryData)
     const itemsSheet = XLSX.utils.json_to_sheet(itemsData)
 
-    const summaryColWidths = [
+    summarySheet["!cols"] = [
       { wch: 6 },
       { wch: 14 },
       { wch: 30 },
@@ -175,7 +177,7 @@ export async function GET(req: NextRequest) {
       { wch: 38 },
     ]
 
-    const itemsColWidths = [
+    itemsSheet["!cols"] = [
       { wch: 6 },
       { wch: 14 },
       { wch: 28 },
@@ -188,9 +190,6 @@ export async function GET(req: NextRequest) {
       { wch: 18 },
       { wch: 38 },
     ]
-
-    summarySheet["!cols"] = summaryColWidths
-    itemsSheet["!cols"] = itemsColWidths
 
     XLSX.utils.book_append_sheet(workbook, summarySheet, "Ringkasan Nota")
     XLSX.utils.book_append_sheet(workbook, itemsSheet, "Rincian Item Produk")

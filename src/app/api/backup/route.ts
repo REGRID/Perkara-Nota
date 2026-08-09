@@ -1,28 +1,35 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
+import { invalidateCategoriesCache } from "@/lib/categories"
 
 // GET: Export entire database data as JSON
 export async function GET() {
   try {
-    const receipts = await db.receipt.findMany({
-      include: { items: true },
-      orderBy: { createdAt: "asc" },
-    })
+    const { data: receipts } = await supabase
+      .from("receipts")
+      .select("*, items:receipt_items(*)")
+      .order("createdAt", { ascending: true })
 
-    const customCategories = await (db as any).customCategory.findMany({
-      orderBy: { createdAt: "asc" },
-    })
+    const { data: customCategories } = await supabase
+      .from("custom_categories")
+      .select("*")
+      .order("createdAt", { ascending: true })
 
-    const merchantDictionaries = await (db as any).merchantDictionary.findMany()
-    const productDictionaries = await (db as any).productDictionary.findMany()
+    const { data: merchantDictionaries } = await supabase
+      .from("merchant_dictionaries")
+      .select("*")
+
+    const { data: productDictionaries } = await supabase
+      .from("product_dictionaries")
+      .select("*")
 
     const backupData = {
       version: "1.0",
       exportedAt: new Date().toISOString(),
-      receipts,
-      customCategories,
-      merchantDictionaries,
-      productDictionaries,
+      receipts: receipts || [],
+      customCategories: customCategories || [],
+      merchantDictionaries: merchantDictionaries || [],
+      productDictionaries: productDictionaries || [],
     }
 
     return new NextResponse(JSON.stringify(backupData, null, 2), {
@@ -54,15 +61,23 @@ export async function POST(req: NextRequest) {
     if (backupData.customCategories && Array.isArray(backupData.customCategories)) {
       for (const cat of backupData.customCategories) {
         try {
-          const exists = await (db as any).customCategory.findFirst({
-            where: { name: cat.name, parentId: cat.parentId || null },
-          })
+          let catQuery = supabase
+            .from("custom_categories")
+            .select("id")
+            .eq("name", cat.name)
+
+          if (cat.parentId) {
+            catQuery = catQuery.eq("parentId", cat.parentId)
+          } else {
+            catQuery = catQuery.is("parentId", null)
+          }
+
+          const { data: exists } = await catQuery.maybeSingle()
+
           if (!exists) {
-            await (db as any).customCategory.create({
-              data: {
-                name: cat.name,
-                parentId: cat.parentId || null,
-              },
+            await supabase.from("custom_categories").insert({
+              name: cat.name,
+              parentId: cat.parentId || null,
             })
             importedCategories++
           }
@@ -74,13 +89,16 @@ export async function POST(req: NextRequest) {
     if (backupData.receipts && Array.isArray(backupData.receipts)) {
       for (const r of backupData.receipts) {
         try {
-          const exists = await db.receipt.findUnique({
-            where: { id: r.id },
-          })
+          const { data: exists } = await supabase
+            .from("receipts")
+            .select("id")
+            .eq("id", r.id)
+            .maybeSingle()
 
           if (!exists) {
-            await db.receipt.create({
-              data: {
+            const { data: newReceipt } = await supabase
+              .from("receipts")
+              .insert({
                 id: r.id,
                 merchantName: r.merchantName || "Nota / Toko",
                 date: r.date,
@@ -91,23 +109,30 @@ export async function POST(req: NextRequest) {
                 paymentMethod: r.paymentMethod || "Cash",
                 paymentStatus: r.paymentStatus || "Lunas",
                 note: r.note || null,
-                createdAt: r.createdAt ? new Date(r.createdAt) : new Date(),
-                items: {
-                  create: (r.items || []).map((it: any) => ({
-                    name: it.name || "Item",
-                    category: it.category || "Lain-lain",
-                    subCategory: it.subCategory || "Umum",
-                    price: Number(it.price) || 0,
-                    quantity: Number(it.quantity) || 1,
-                  })),
-                },
-              },
-            })
+                createdAt: r.createdAt || new Date().toISOString(),
+              })
+              .select("id")
+              .single()
+
+            if (newReceipt && r.items && Array.isArray(r.items) && r.items.length > 0) {
+              const itemsToInsert = r.items.map((it: any) => ({
+                receiptId: newReceipt.id,
+                name: it.name || "Item",
+                category: it.category || "Lain-lain",
+                subCategory: it.subCategory || "Umum",
+                price: Number(it.price) || 0,
+                quantity: Number(it.quantity) || 1,
+              }))
+
+              await supabase.from("receipt_items").insert(itemsToInsert)
+            }
             importedReceipts++
           }
         } catch (e) {}
       }
     }
+
+    invalidateCategoriesCache()
 
     return NextResponse.json({
       success: true,

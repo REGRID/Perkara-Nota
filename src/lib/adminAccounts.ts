@@ -1,4 +1,4 @@
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
 import fs from "fs"
 import path from "path"
 
@@ -93,11 +93,14 @@ export async function getAdminPassword(username: string): Promise<string | null>
       return localPasses[cleanUser].trim()
     }
 
-    // 2. Check Database Table
+    // 2. Check Supabase Database Table
     try {
-      const dbAccount = await (db as any).adminAccount.findFirst({
-        where: { username: cleanUser },
-      })
+      const { data: dbAccount } = await supabase
+        .from("admin_accounts")
+        .select("password")
+        .eq("username", cleanUser)
+        .maybeSingle()
+
       if (dbAccount && dbAccount.password) {
         return dbAccount.password.trim()
       }
@@ -149,7 +152,7 @@ export async function validateAdminCredentials(username: string, inputPass: stri
 
 /**
  * Update password for a given admin username (rama / refo).
- * Permanently updates local memory, .env.local file, admin_passwords.json, and Postgres DB.
+ * Permanently updates local memory, .env.local file, admin_passwords.json, and Supabase DB.
  */
 export async function updateAdminPassword(username: string, newPass: string): Promise<boolean> {
   try {
@@ -170,24 +173,26 @@ export async function updateAdminPassword(username: string, newPass: string): Pr
     // 3. Update .env.local file & process.env on disk
     updateEnvFilePassword(cleanUser, cleanPass)
 
-    // 4. Attempt DB sync if table exists
+    // 4. Attempt Supabase DB sync
     try {
-      const existing = await (db as any).adminAccount.findFirst({
-        where: { username: cleanUser },
-      })
+      const { data: existing } = await supabase
+        .from("admin_accounts")
+        .select("id")
+        .eq("username", cleanUser)
+        .maybeSingle()
 
       if (existing) {
-        await (db as any).adminAccount.update({
-          where: { id: existing.id },
-          data: { password: cleanPass },
-        })
+        await supabase
+          .from("admin_accounts")
+          .update({ password: cleanPass, updatedAt: new Date().toISOString() })
+          .eq("id", existing.id)
       } else {
-        await (db as any).adminAccount.create({
-          data: {
+        await supabase
+          .from("admin_accounts")
+          .insert({
             username: cleanUser,
             password: cleanPass,
-          },
-        })
+          })
       }
     } catch (dbErr) {
       console.warn("DB password sync notice (saved to local persistent file and .env):", dbErr)

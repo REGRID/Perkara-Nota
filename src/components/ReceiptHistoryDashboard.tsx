@@ -59,6 +59,7 @@ import {
   CartesianGrid,
 } from "recharts"
 import { ImageInteractiveLightbox } from "@/components/ImageInteractiveLightbox"
+import { getAuthHeaders } from "@/lib/authClient"
 
 export interface ReceiptItem {
   id: string
@@ -275,7 +276,9 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   // Fetch Pending Approvals for Dual-Admin Verification
   const fetchPendingApprovals = async () => {
     try {
-      const res = await fetch("/api/approvals?status=PENDING")
+      const res = await fetch("/api/approvals?status=PENDING", {
+        headers: getAuthHeaders(),
+      })
       if (res.ok) {
         const data = await res.json()
         setPendingApprovals(data)
@@ -290,6 +293,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     try {
       const res = await fetch(`/api/approvals/${approvalId}/approve`, {
         method: "POST",
+        headers: getAuthHeaders(),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -311,7 +315,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     try {
       const res = await fetch(`/api/approvals/${approvalId}/reject`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ reason: rejectionReason }),
       })
       const data = await res.json()
@@ -334,7 +338,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     try {
       const res = await fetch("/api/approvals", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           receiptId: receipt.id,
           actionType: "SETTLE",
@@ -505,21 +509,27 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
   const handleBulkDelete = async () => {
     if (selectedReceiptIds.length === 0) return
-    if (!confirm(`Hapus ${selectedReceiptIds.length} nota yang dipilih secara permanen?`)) return
+    if (!confirm(`Ajukan penghapusan massal untuk ${selectedReceiptIds.length} nota yang dipilih?`)) return
 
     setIsBulkDeleting(true)
     try {
       const res = await fetch("/api/receipts", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ids: selectedReceiptIds }),
       })
 
+      const data = await res.json()
       if (res.ok) {
-        setAllReceipts((prev) => prev.filter((r) => !selectedReceiptIds.includes(r.id)))
+        if (data.pendingApproval) {
+          alert(data.message || `Permintaan hapus massal (${selectedReceiptIds.length} nota) telah diajukan. Menunggu verifikasi dari admin lain.`)
+          await fetchPendingApprovals()
+        } else {
+          setAllReceipts((prev) => prev.filter((r) => !selectedReceiptIds.includes(r.id)))
+        }
         setSelectedReceiptIds([])
       } else {
-        alert("Gagal menghapus nota terpilih")
+        alert(data.error || "Gagal menghapus nota terpilih")
       }
     } catch (e) {
       alert("Gagal menghapus beberapa nota terpilih")
@@ -655,6 +665,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     try {
       const res = await fetch(`/api/receipts/${deletingReceipt.id}`, {
         method: "DELETE",
+        headers: getAuthHeaders(),
       })
 
       const data = await res.json()

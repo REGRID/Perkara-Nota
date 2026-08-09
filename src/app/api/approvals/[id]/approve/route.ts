@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest } from "@/lib/authHelper"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -7,11 +7,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { id } = await params
     const approvingAdmin = getAdminUserFromRequest(req)
 
-    const pendingApproval = await (db as any).pendingApproval.findUnique({
-      where: { id },
-    })
+    const { data: pendingApproval, error: findErr } = await supabase
+      .from("pending_approvals")
+      .select("*")
+      .eq("id", id)
+      .single()
 
-    if (!pendingApproval) {
+    if (findErr || !pendingApproval) {
       return NextResponse.json({ error: "Permintaan verifikasi tidak ditemukan" }, { status: 404 })
     }
 
@@ -31,58 +33,81 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     // Execute requested changes in database
     if (actionType === "DELETE" && pendingApproval.receiptId) {
-      await db.receipt.delete({
-        where: { id: pendingApproval.receiptId },
-      })
+      await supabase
+        .from("receipts")
+        .delete()
+        .eq("id", pendingApproval.receiptId)
     } else if (actionType === "BULK_DELETE" && payload.ids && Array.isArray(payload.ids)) {
-      await db.receipt.deleteMany({
-        where: { id: { in: payload.ids } },
-      })
+      await supabase
+        .from("receipts")
+        .delete()
+        .in("id", payload.ids)
     } else if (actionType === "SETTLE" && pendingApproval.receiptId) {
-      await db.receipt.update({
-        where: { id: pendingApproval.receiptId },
-        data: { paymentStatus: "Lunas" },
-      })
+      await supabase
+        .from("receipts")
+        .update({
+          paymentStatus: "Lunas",
+          updatedAt: new Date().toISOString(),
+        })
+        .eq("id", pendingApproval.receiptId)
     } else if (actionType === "EDIT" && pendingApproval.receiptId) {
       const { merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, items } = payload
 
-      await db.receiptItem.deleteMany({
-        where: { receiptId: pendingApproval.receiptId },
-      })
+      // Delete existing receipt items
+      await supabase
+        .from("receipt_items")
+        .delete()
+        .eq("receiptId", pendingApproval.receiptId)
 
-      await db.receipt.update({
-        where: { id: pendingApproval.receiptId },
-        data: {
+      // Update parent receipt record
+      await supabase
+        .from("receipts")
+        .update({
           merchantName: merchantName || "Nota / Toko",
           date,
-          imageUrl: imageUrl || undefined,
+          imageUrl: imageUrl || null,
           subtotal: Number(subtotal) || 0,
           taxAmount: Number(taxAmount) || 0,
           totalAmount: Number(totalAmount) || 0,
           paymentMethod: paymentMethod || "Cash",
           paymentStatus: paymentStatus || "Lunas",
           note: note || null,
-          items: {
-            create: (items || []).map((it: any) => ({
-              name: it.name || "Item",
-              category: it.category || "Lain-lain",
-              subCategory: it.subCategory || "Umum",
-              price: Number(it.price) || 0,
-              quantity: Number(it.quantity) || 1,
-            })),
-          },
-        },
-      })
+          updatedAt: new Date().toISOString(),
+        })
+        .eq("id", pendingApproval.receiptId)
+
+      // Re-create items
+      if (items && Array.isArray(items) && items.length > 0) {
+        const itemsToCreate = items.map((it: any) => ({
+          receiptId: pendingApproval.receiptId,
+          name: it.name || "Item",
+          category: it.category || "Lain-lain",
+          subCategory: it.subCategory || "Umum",
+          price: Number(it.price) || 0,
+          quantity: Number(it.quantity) || 1,
+        }))
+
+        await supabase
+          .from("receipt_items")
+          .insert(itemsToCreate)
+      }
     }
 
-    // Mark approval request as APPROVED
-    const updatedApproval = await (db as any).pendingApproval.update({
-      where: { id },
-      data: {
+    // Mark approval request as APPROVED in Supabase
+    const { data: updatedApproval, error: updateErr } = await supabase
+      .from("pending_approvals")
+      .update({
         status: "APPROVED",
         approvedBy: approvingAdmin,
-      },
-    })
+        updatedAt: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .select("*")
+      .single()
+
+    if (updateErr) {
+      throw new Error(updateErr.message)
+    }
 
     return NextResponse.json({
       success: true,

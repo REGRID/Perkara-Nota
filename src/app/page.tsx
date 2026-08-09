@@ -354,48 +354,6 @@ export default function HomePage() {
             <div>
               <h1 className="font-extrabold text-base sm:text-lg tracking-tight leading-tight flex items-center gap-2">
                 Nota-Photo
-
-                {/* Quota Status Dot Indicator with Tooltip */}
-                {quotaInfo && (
-                  <div
-                    className="relative group inline-flex items-center cursor-pointer ml-1"
-                    title={`Kuota Scan: ${quotaInfo.remaining} / ${quotaInfo.dailyLimit}`}
-                  >
-                    <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-800 border border-slate-700/80 hover:border-slate-600 transition-all">
-                      <span
-                        className={`w-2.5 h-2.5 rounded-full shadow-xs transition-all ${
-                          !quotaInfo.allowed || quotaInfo.remaining === 0
-                            ? "bg-red-500 shadow-red-500/50"
-                            : quotaInfo.remaining <= Math.ceil(quotaInfo.dailyLimit * 0.25)
-                            ? "bg-amber-400 animate-pulse shadow-amber-400/50"
-                            : "bg-emerald-400 animate-pulse shadow-emerald-400/50"
-                        }`}
-                      />
-                      <span className="text-[11px] font-mono text-slate-300 font-bold">
-                        {quotaInfo.remaining}/{quotaInfo.dailyLimit}
-                      </span>
-                    </div>
-
-                    {/* Hover Tooltip Card */}
-                    <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 hidden group-hover:flex flex-col items-center z-50 pointer-events-none transition-all animate-in fade-in zoom-in-95 duration-150">
-                      <div className="w-2 h-2 bg-slate-800 rotate-45 border-t border-l border-slate-700 -mb-1" />
-                      <div className="bg-slate-800 text-white text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate-700 shadow-xl whitespace-nowrap flex items-center gap-2">
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            !quotaInfo.allowed || quotaInfo.remaining === 0
-                              ? "bg-red-500"
-                              : quotaInfo.remaining <= Math.ceil(quotaInfo.dailyLimit * 0.25)
-                              ? "bg-amber-400"
-                              : "bg-emerald-400"
-                          }`}
-                        />
-                        <span>
-                          Kuota Scan: <strong>{quotaInfo.remaining}</strong> / {quotaInfo.dailyLimit}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </h1>
               <p className="text-[11px] text-slate-400 hidden sm:block">
                 Pemindai & Rekap Nota Digital

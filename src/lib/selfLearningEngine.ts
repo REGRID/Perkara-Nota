@@ -1,4 +1,4 @@
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
 import { getOrSeedCategories } from "@/lib/categories"
 
 /**
@@ -12,18 +12,29 @@ export async function recordVerifiedReceiptLearning(
     const cleanMerchant = merchantName ? merchantName.trim() : ""
     if (cleanMerchant && cleanMerchant !== "Nota / Toko") {
       const rawKey = cleanMerchant.toLowerCase()
-      await db.merchantDictionary.upsert({
-        where: { rawPattern: rawKey },
-        update: {
-          cleanName: cleanMerchant,
-          verifiedCount: { increment: 1 },
-        },
-        create: {
+
+      const { data: existingMerchant } = await supabase
+        .from("merchant_dictionaries")
+        .select("id, verifiedCount")
+        .eq("rawPattern", rawKey)
+        .maybeSingle()
+
+      if (existingMerchant) {
+        await supabase
+          .from("merchant_dictionaries")
+          .update({
+            cleanName: cleanMerchant,
+            verifiedCount: (existingMerchant.verifiedCount || 1) + 1,
+            updatedAt: new Date().toISOString(),
+          })
+          .eq("id", existingMerchant.id)
+      } else {
+        await supabase.from("merchant_dictionaries").insert({
           rawPattern: rawKey,
           cleanName: cleanMerchant,
           verifiedCount: 1,
-        },
-      })
+        })
+      }
     }
 
     const officialHierarchy = await getOrSeedCategories()
@@ -56,57 +67,60 @@ export async function recordVerifiedReceiptLearning(
       }
     }
 
-    const itemUpsertPromises = Array.from(uniqueItemsMap.entries()).map(([rawKey, item]) =>
-      db.productDictionary.upsert({
-        where: { rawName: rawKey },
-        update: {
-          verifiedName: item.name,
-          category: item.category,
-          subCategory: item.subCategory,
-          lastKnownPrice: Number(item.price) || 0,
-          verifiedCount: { increment: 1 },
-        },
-        create: {
+    for (const [rawKey, item] of uniqueItemsMap.entries()) {
+      const { data: existingProd } = await supabase
+        .from("product_dictionaries")
+        .select("id, verifiedCount")
+        .eq("rawName", rawKey)
+        .maybeSingle()
+
+      if (existingProd) {
+        await supabase
+          .from("product_dictionaries")
+          .update({
+            verifiedName: item.name,
+            category: item.category,
+            subCategory: item.subCategory,
+            lastKnownPrice: Number(item.price) || 0,
+            verifiedCount: (existingProd.verifiedCount || 1) + 1,
+            updatedAt: new Date().toISOString(),
+          })
+          .eq("id", existingProd.id)
+      } else {
+        await supabase.from("product_dictionaries").insert({
           rawName: rawKey,
           verifiedName: item.name,
           category: item.category,
           subCategory: item.subCategory,
           lastKnownPrice: Number(item.price) || 0,
           verifiedCount: 1,
-        },
-      })
-    )
-
-    await Promise.all(itemUpsertPromises)
+        })
+      }
+    }
   } catch (error) {
     console.warn("Self-learning memory recording warning:", error)
   }
 }
 
 /**
- * Retrieves learned merchant & product context from local database to inject into Gemini prompt.
+ * Retrieves learned merchant & product context from Supabase database to inject into Gemini prompt.
  */
 export async function getLearnedKnowledgeContext(): Promise<string> {
   try {
-    const topMerchants = await db.merchantDictionary.findMany({
-      orderBy: { verifiedCount: "desc" },
-      take: 10,
-      select: {
-        cleanName: true,
-        verifiedCount: true,
-      },
-    })
+    const { data: topMerchantsData } = await supabase
+      .from("merchant_dictionaries")
+      .select("cleanName, verifiedCount")
+      .order("verifiedCount", { ascending: false })
+      .limit(10)
 
-    const topProducts = await db.productDictionary.findMany({
-      orderBy: { verifiedCount: "desc" },
-      take: 15,
-      select: {
-        verifiedName: true,
-        category: true,
-        subCategory: true,
-        lastKnownPrice: true,
-      },
-    })
+    const { data: topProductsData } = await supabase
+      .from("product_dictionaries")
+      .select("verifiedName, category, subCategory, lastKnownPrice")
+      .order("verifiedCount", { ascending: false })
+      .limit(15)
+
+    const topMerchants = topMerchantsData || []
+    const topProducts = topProductsData || []
 
     if (topMerchants.length === 0 && topProducts.length === 0) {
       return ""
@@ -124,7 +138,7 @@ export async function getLearnedKnowledgeContext(): Promise<string> {
     if (topProducts.length > 0) {
       knowledgeText += "Daftar Barang, Kategori Utama & Sub-Kategori Terverifikasi:\n"
       topProducts.forEach((p: any) => {
-        knowledgeText += `- "${p.verifiedName}" -> Kategori Utama: "${p.category}", Sub-Kategori: "${p.subCategory || "Umum"}" (Harga Terakhir: Rp ${p.lastKnownPrice.toLocaleString("id-ID")})\n`
+        knowledgeText += `- "${p.verifiedName}" -> Kategori Utama: "${p.category}", Sub-Kategori: "${p.subCategory || "Umum"}" (Harga Terakhir: Rp ${Number(p.lastKnownPrice || 0).toLocaleString("id-ID")})\n`
       })
     }
 
@@ -166,7 +180,7 @@ function calculateItemSimilarityScore(nameA: string, nameB: string): number {
 }
 
 /**
- * Fast Local Fuzzy Matcher: Matches a raw item name against learned database items
+ * Fast Local Fuzzy Matcher: Matches a raw item name against learned database items in Supabase
  */
 export async function matchItemWithLearnedMemory(
   rawItemName: string,
@@ -176,16 +190,11 @@ export async function matchItemWithLearnedMemory(
     const cleanRaw = rawItemName.trim()
     if (!cleanRaw || cleanRaw.length < 2) return null
 
-    const allLearnedProducts = await db.productDictionary.findMany({
-      orderBy: { verifiedCount: "desc" },
-      take: 100,
-      select: {
-        rawName: true,
-        verifiedName: true,
-        category: true,
-        subCategory: true,
-      },
-    })
+    const { data: allLearnedProducts } = await supabase
+      .from("product_dictionaries")
+      .select("rawName, verifiedName, category, subCategory")
+      .order("verifiedCount", { ascending: false })
+      .limit(100)
 
     if (!allLearnedProducts || allLearnedProducts.length === 0) return null
 

@@ -1,4 +1,4 @@
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
 
 export interface CategoryHierarchyItem {
   id: string
@@ -41,36 +41,39 @@ export async function getOrSeedCategories(): Promise<CategoryHierarchyItem[]> {
   }
 
   try {
-    let customCats = await (db as any).customCategory.findMany({
-      select: { id: true, name: true, parentId: true },
-      orderBy: { createdAt: "asc" },
-    })
+    let { data: customCats, error } = await supabase
+      .from("custom_categories")
+      .select("id, name, parentId")
+      .order("createdAt", { ascending: true })
 
     // Auto-seed default categories if empty
-    if (!customCats || customCats.length === 0) {
+    if (error || !customCats || customCats.length === 0) {
       for (const catGroup of DEFAULT_SEED_CATEGORIES) {
-        const createdParent = await (db as any).customCategory.create({
-          data: {
+        const { data: createdParent } = await supabase
+          .from("custom_categories")
+          .insert({
             name: catGroup.name,
             parentId: null,
-          },
-        })
+          })
+          .select("id")
+          .single()
 
-        for (const subName of catGroup.subs) {
-          await (db as any).customCategory.create({
-            data: {
+        if (createdParent) {
+          for (const subName of catGroup.subs) {
+            await supabase.from("custom_categories").insert({
               name: subName,
               parentId: createdParent.id,
-            },
-          })
+            })
+          }
         }
       }
 
       // Re-fetch after seeding
-      customCats = await (db as any).customCategory.findMany({
-        select: { id: true, name: true, parentId: true },
-        orderBy: { createdAt: "asc" },
-      })
+      const refetched = await supabase
+        .from("custom_categories")
+        .select("id, name, parentId")
+        .order("createdAt", { ascending: true })
+      customCats = refetched.data || []
     }
 
     const parents = customCats.filter((c: any) => !c.parentId)

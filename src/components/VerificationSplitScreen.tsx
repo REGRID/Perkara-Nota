@@ -39,6 +39,7 @@ import {
 } from "lucide-react"
 import { ParsedItem, ParsedReceiptResult } from "@/app/api/parse-receipt/route"
 import { ImageInteractiveLightbox } from "@/components/ImageInteractiveLightbox"
+import { getAuthHeaders } from "@/lib/authClient"
 
 interface VerificationSplitScreenProps {
   imagePreviewUrl: string
@@ -365,7 +366,7 @@ export function VerificationSplitScreen({
 
       const response = await fetch(endpoint, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           merchantName: merchantName.trim() || "Nota / Toko",
           date,
@@ -386,9 +387,13 @@ export function VerificationSplitScreen({
         }),
       })
 
+      const data = await response.json()
       if (!response.ok) {
-        const data = await response.json()
         throw new Error(data.error || "Gagal menyimpan nota")
+      }
+
+      if (data.pendingApproval) {
+        alert(data.message || "Permintaan edit nota berhasil diajukan! Menunggu verifikasi dari admin lain.")
       }
 
       onSaveSuccess()
