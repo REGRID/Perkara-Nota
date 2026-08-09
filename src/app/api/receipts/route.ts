@@ -4,6 +4,11 @@ import { recordVerifiedReceiptLearning } from "@/lib/selfLearningEngine"
 import { getAdminUserFromRequest } from "@/lib/authHelper"
 import { getOrSeedCategories } from "@/lib/categories"
 
+import { compressBase64Image } from "@/lib/imageCompressor"
+
+const RECEIPT_LIST_SELECT =
+  "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, createdAt, updatedAt, items:receipt_items(*)"
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
@@ -17,7 +22,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from("receipts")
-      .select("*, items:receipt_items(*)")
+      .select(RECEIPT_LIST_SELECT)
       .order("createdAt", { ascending: false })
 
     if (limit) {
@@ -27,6 +32,7 @@ export async function GET(req: NextRequest) {
     const { data: rawReceipts, error } = await query
 
     if (error) {
+      console.error("GET Receipts Supabase Error:", error)
       throw new Error(error.message)
     }
 
@@ -127,12 +133,14 @@ export async function POST(req: NextRequest) {
         : note.replace(/\[Dibayar oleh: [^\]]+\]\s*/g, "").trim() || null
       : null
 
+    const compressedImageUrl = await compressBase64Image(imageUrl)
+
     const { data: newReceipt, error: receiptErr } = await supabase
       .from("receipts")
       .insert({
         merchantName: merchantName || "Nota / Toko",
         date: date,
-        imageUrl: imageUrl || null,
+        imageUrl: compressedImageUrl || null,
         subtotal: Number(subtotal) || 0,
         taxAmount: Number(taxAmount) || 0,
         totalAmount: Number(totalAmount) || 0,
@@ -140,7 +148,7 @@ export async function POST(req: NextRequest) {
         paymentStatus: paymentStatus || "Lunas",
         note: cleanedNote,
       })
-      .select("*")
+      .select("id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, createdAt, updatedAt")
       .single()
 
     if (receiptErr || !newReceipt) {

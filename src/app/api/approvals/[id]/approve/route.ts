@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest } from "@/lib/authHelper"
+import { compressBase64Image } from "@/lib/imageCompressor"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .eq("id", pendingApproval.receiptId)
     } else if (actionType === "EDIT" && pendingApproval.receiptId) {
       const { merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, items } = payload
+      const compressedImageUrl = await compressBase64Image(imageUrl)
 
       // Delete existing receipt items
       await supabase
@@ -65,7 +67,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .update({
           merchantName: merchantName || "Nota / Toko",
           date,
-          imageUrl: imageUrl || null,
+          imageUrl: compressedImageUrl || null,
           subtotal: Number(subtotal) || 0,
           taxAmount: Number(taxAmount) || 0,
           totalAmount: Number(totalAmount) || 0,

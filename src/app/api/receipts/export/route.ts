@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
 import * as XLSX from "xlsx"
 
+const EXPORT_SELECT =
+  "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, createdAt, updatedAt, items:receipt_items(*)"
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
@@ -15,7 +18,7 @@ export async function GET(req: NextRequest) {
 
     const { data: rawReceipts, error } = await supabase
       .from("receipts")
-      .select("*, items:receipt_items(*)")
+      .select(EXPORT_SELECT)
       .order("date", { ascending: sortDirection === "asc" })
       .order("createdAt", { ascending: sortDirection === "asc" })
 
