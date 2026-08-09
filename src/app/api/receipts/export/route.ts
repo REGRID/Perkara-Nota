@@ -10,6 +10,11 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const search = searchParams.get("search") || ""
     const category = searchParams.get("category") || ""
+    const status = searchParams.get("status") || ""
+    const person = searchParams.get("person") || ""
+    const dateRange = searchParams.get("dateRange") || ""
+    const startDate = searchParams.get("startDate") || ""
+    const endDate = searchParams.get("endDate") || ""
     const format = searchParams.get("format") || "xlsx"
     const order = searchParams.get("order") || "asc"
 
@@ -28,39 +33,64 @@ export async function GET(req: NextRequest) {
 
     let receipts = rawReceipts || []
 
-    // Filter search and category criteria
-    if (search || category) {
-      const searchLower = search.toLowerCase().trim()
-      const categoryLower = category.toLowerCase().trim()
-      const rootLower = rootKeyword.toLowerCase().trim()
+    const todayStr = new Date().toISOString().split("T")[0]
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+    const currentMonthStr = todayStr.substring(0, 7)
 
-      receipts = receipts.filter((r: any) => {
-        const matchesSearch = !searchLower || (
-          (r.merchantName || "").toLowerCase().includes(searchLower) ||
-          (r.note || "").toLowerCase().includes(searchLower) ||
-          (r.paymentMethod || "").toLowerCase().includes(searchLower) ||
-          (r.items || []).some((i: any) =>
+    // Comprehensive client-aligned filter processing
+    receipts = receipts.filter((r: any) => {
+      // 1. Date Range
+      if (dateRange === "today" && r.date !== todayStr) return false
+      if (dateRange === "7days" && r.date < sevenDaysAgo) return false
+      if (dateRange === "month" && !r.date.startsWith(currentMonthStr)) return false
+      if (startDate && r.date < startDate) return false
+      if (endDate && r.date > endDate) return false
+
+      // 2. Search
+      if (search) {
+        const searchLower = search.toLowerCase().trim()
+        const matchesMerchant = (r.merchantName || "").toLowerCase().includes(searchLower)
+        const matchesNote = (r.note || "").toLowerCase().includes(searchLower)
+        const matchesPayment = (r.paymentMethod || "").toLowerCase().includes(searchLower)
+        const matchesItems = (r.items || []).some(
+          (i: any) =>
             (i.name || "").toLowerCase().includes(searchLower) ||
             (i.category || "").toLowerCase().includes(searchLower) ||
             (i.subCategory || "").toLowerCase().includes(searchLower)
-          )
         )
+        if (!matchesMerchant && !matchesNote && !matchesPayment && !matchesItems) return false
+      }
 
-        const matchesCategory = !categoryLower || (
-          (r.items || []).some((i: any) => {
-            const itemCat = (i.category || "").toLowerCase()
-            const itemSub = (i.subCategory || "").toLowerCase()
-            return (
-              itemCat.includes(categoryLower) ||
-              itemSub.includes(categoryLower) ||
-              (rootLower && itemCat.includes(rootLower))
-            )
-          })
-        )
+      // 3. Category & Sub-Category
+      if (category) {
+        const categoryLower = category.toLowerCase().trim()
+        const rootLower = rootKeyword.toLowerCase().trim()
+        const matchesCat = (r.items || []).some((i: any) => {
+          const itemCat = (i.category || "").toLowerCase()
+          const itemSub = (i.subCategory || "").toLowerCase()
+          return itemCat.includes(categoryLower) || itemSub.includes(categoryLower) || (rootLower && itemCat.includes(rootLower))
+        })
+        if (!matchesCat) return false
+      }
 
-        return matchesSearch && matchesCategory
-      })
-    }
+      // 4. Status Filter
+      if (status && status !== "Semua Status") {
+        const st = (r.paymentStatus || "").toLowerCase().trim()
+        const isSettled = !st.includes("belum") && !st.includes("tempo") && (st === "lunas" || st.includes("sudah"))
+        if (status === "Lunas" && !isSettled) return false
+        if (status.includes("Belum") && isSettled) return false
+      }
+
+      // 5. Person Filter
+      if (person && person !== "Semua Penanggung Jawab") {
+        const noteText = r.note || ""
+        const match = noteText.match(/\[Dibayar oleh: ([^\]]+)\]/)
+        const paidBy = match ? match[1].trim() : ""
+        if (paidBy.toLowerCase() !== person.toLowerCase()) return false
+      }
+
+      return true
+    })
 
     // Sort items inside each receipt by createdAt asc
     receipts.forEach((r: any) => {
