@@ -12,9 +12,9 @@ jobs:
     steps:
       - name: Ping Supabase & App Endpoint
         env:
-          SUPABASE_URL: ${{ secrets['SUPABASE_URL'] || secrets['NEXT_PUBLIC_SUPABASE_URL'] }}
-          SUPABASE_ANON_KEY: ${{ secrets['SUPABASE_ANON_KEY'] || secrets['NEXT_PUBLIC_SUPABASE_ANON_KEY'] }}
-          APP_PING_URL: ${{ secrets['APP_PING_URL'] }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          APP_PING_URL: ${{ secrets.APP_PING_URL }}
         run: |
           echo "Executing Supabase Keep-Alive Cron..."
 
