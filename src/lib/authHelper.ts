@@ -10,7 +10,7 @@ export function getAdminUserFromRequest(req: NextRequest): string {
   const authHeader = req.headers.get("authorization")?.replace("Bearer ", "")
   const currentToken = sessionCookie || authHeader
 
-  if (!currentToken) return "admin"
+  if (!currentToken) return ""
 
   try {
     const decoded = Buffer.from(currentToken, "base64").toString("utf-8")
@@ -22,7 +22,7 @@ export function getAdminUserFromRequest(req: NextRequest): string {
     // Ignore error
   }
 
-  return "admin"
+  return ""
 }
 
 export function getAdminRoleFromRequest(req: NextRequest): string {
@@ -33,8 +33,9 @@ export function getAdminRoleFromRequest(req: NextRequest): string {
 
   const user = getAdminUserFromRequest(req)
   if (user === "karyawan") return "KARYAWAN"
+  if (user === "rama" || user === "refo") return "ADMIN"
 
-  return "ADMIN"
+  return user ? "ADMIN" : "KARYAWAN"
 }
 
 export function getStaffNameFromRequest(req: NextRequest): string {

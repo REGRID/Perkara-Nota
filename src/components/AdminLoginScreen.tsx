@@ -53,8 +53,8 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
       // Save token & user metadata in localStorage for backup PWA authorization header
       if (data.token) {
         localStorage.setItem("nota_admin_token", data.token)
-        localStorage.setItem("nota_admin_user", data.user?.username || "admin")
-        localStorage.setItem("nota_admin_role", data.user?.role || "ADMIN")
+        localStorage.setItem("nota_admin_user", data.user?.username || username.trim())
+        localStorage.setItem("nota_admin_role", data.user?.role || (isKaryawanRole ? "KARYAWAN" : "ADMIN"))
         if (data.user?.staffName) {
           localStorage.setItem("nota_staff_name", data.user.staffName)
         } else {
@@ -62,7 +62,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
         }
       }
 
-      onLoginSuccess(data.token, data.user?.username || "admin")
+      onLoginSuccess(data.token, data.user?.username || username.trim())
     } catch (err: any) {
       setErrorMessage(err.message || "Gagal masuk ke sistem.")
     } finally {

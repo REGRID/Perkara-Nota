@@ -125,7 +125,7 @@ interface ReceiptHistoryDashboardProps {
   currentAdminUser?: string
 }
 
-export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, currentAdminUser = "admin" }: ReceiptHistoryDashboardProps) {
+export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, currentAdminUser = "" }: ReceiptHistoryDashboardProps) {
   const [allReceipts, setAllReceipts] = useState<ReceiptData[]>(() => {
     if (typeof window !== "undefined") {
       try {
