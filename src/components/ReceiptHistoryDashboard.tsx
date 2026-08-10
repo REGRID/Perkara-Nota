@@ -1,6 +1,8 @@
 "use client"
 
 import React, { useState, useEffect, useMemo, useRef } from "react"
+import jsPDF from "jspdf"
+import autoTable from "jspdf-autotable"
 import {
   Search,
   Receipt as ReceiptIcon,
@@ -918,6 +920,138 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   // Trigger A4/A3/Letter Rekening Koran Printing
   const handleTriggerA4Print = () => {
     window.print()
+  }
+
+  // Direct Native PDF Vector File Exporter (jsPDF + autoTable)
+  const handleExportPdfDirect = () => {
+    try {
+      const format = printPaperSize === "auto" ? "a4" : printPaperSize.toLowerCase()
+      const orientation = printOrientation
+
+      const doc = new jsPDF({
+        orientation,
+        unit: "mm",
+        format,
+      })
+
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+
+      // Header Banner
+      doc.setFillColor(15, 23, 42)
+      doc.rect(10, 10, pageWidth - 20, 14, "F")
+
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(10)
+      doc.setTextColor(255, 255, 255)
+      doc.text("LAPORAN REKAPITULASI PEMBUKUAN NOTA PHOTO", 14, 19)
+
+      doc.setFontSize(8)
+      doc.setTextColor(16, 185, 129)
+      doc.text("PERKARA KOPI — OFFICIAL STATEMENT", pageWidth - 14, 19, { align: "right" })
+
+      // Metadata Section
+      let currentY = 29
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(8.5)
+      doc.setTextColor(15, 23, 42)
+      doc.text(`Periode Data: ${statementDateRange.from} s/d ${statementDateRange.to}`, 10, currentY)
+      doc.text(`Total Ringkasan: ${statementTableRows.length} Struk — Rp ${Math.round(totalSpend).toLocaleString("id-ID")}`, pageWidth - 10, currentY, { align: "right" })
+
+      currentY += 5
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(8)
+      doc.setTextColor(100, 116, 139)
+      doc.text(`No. Registrasi: 140008801996 | Kategori: ${selectedCategory}${isSubCategoryActive ? ` (${selectedSubCategory})` : ""}`, 10, currentY)
+
+      currentY += 6
+
+      // Prepare Table Rows
+      const head = [["Tanggal", "No. Ref", "Toko", "Rincian Barang & Kategori", "Pengeluaran", "Total"]]
+
+      const body = statementTableRows.map((row) => {
+        const itemDetails = row.rawItems
+          .map((it) => `• ${it.name} (x${it.quantity})`)
+          .join("\n")
+        const catLabel = `[${row.categories || "Umum"}]`
+        const fullDetails = `${catLabel}\n${itemDetails}`
+
+        return [
+          row.date,
+          row.refNo,
+          row.merchantName,
+          fullDetails,
+          `Rp ${Math.round(row.debit).toLocaleString("id-ID")}`,
+          `Rp ${Math.round(row.balance).toLocaleString("id-ID")}`,
+        ]
+      })
+
+      // Generate Table
+      autoTable(doc, {
+        startY: currentY,
+        head,
+        body,
+        margin: { top: 12, bottom: 16, left: 10, right: 10 },
+        theme: "grid",
+        headStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontStyle: "bold",
+          fontSize: 8.5,
+          halign: "left",
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: [30, 41, 59],
+          cellPadding: 2.5,
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252],
+        },
+        columnStyles: {
+          0: { cellWidth: orientation === "landscape" ? 24 : 22, halign: "center", fontStyle: "bold" },
+          1: { cellWidth: orientation === "landscape" ? 28 : 25, fontStyle: "normal" },
+          2: { cellWidth: orientation === "landscape" ? 38 : 32, fontStyle: "bold" },
+          3: { cellWidth: "auto" },
+          4: { cellWidth: orientation === "landscape" ? 32 : 28, halign: "right", fontStyle: "bold", textColor: [16, 185, 129] },
+          5: { cellWidth: orientation === "landscape" ? 34 : 30, halign: "right", fontStyle: "bold" },
+        },
+        didDrawPage: (data) => {
+          const totalPages = doc.getNumberOfPages()
+          doc.setFontSize(8)
+          doc.setTextColor(148, 163, 184)
+          doc.text(
+            `Halaman ${data.pageNumber} dari ${totalPages} — Dokumen Laporan Rekapitulasi Pembukuan Nota Photo`,
+            pageWidth / 2,
+            pageHeight - 6,
+            { align: "center" }
+          )
+        },
+      })
+
+      // Summary Card on last page
+      const finalY = (doc as any).lastAutoTable?.finalY || currentY + 40
+      if (finalY + 18 < pageHeight - 12) {
+        doc.setFillColor(15, 23, 42)
+        doc.roundedRect(10, finalY + 4, pageWidth - 20, 12, 2.5, 2.5, "F")
+
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(8.5)
+        doc.setTextColor(148, 163, 184)
+        doc.text("TOTAL AKUMULASI PENGELUARAN (OUTFLOW STATEMENT TOTAL)", 15, finalY + 11.5)
+
+        doc.setFontSize(11)
+        doc.setTextColor(16, 185, 129)
+        doc.text(`Rp ${Math.round(totalSpend).toLocaleString("id-ID")}`, pageWidth - 15, finalY + 11.5, { align: "right" })
+      }
+
+      // Save PDF file
+      const dateToday = new Date().toISOString().split("T")[0]
+      doc.save(`Laporan_Pembukuan_Nota_Photo_${dateToday}.pdf`)
+    } catch (err: any) {
+      console.error("PDF Export Error:", err)
+      alert("Gagal mengunduh file PDF: " + (err?.message || "Terjadi kesalahan"))
+    }
   }
 
   // Delete Receipt Handler
@@ -2420,16 +2554,27 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                     setExportConfirmFormat("statement")
                     handleProceedExport()
                   }}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs transition-colors shadow-xs"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs transition-colors shadow-xs"
                 >
                   <Download className="w-3.5 h-3.5" /> Excel
                 </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportPdfDirect}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/30"
+                  title="Unduh file PDF resmi langsung ke HP/Komputer"
+                >
+                  <Download className="w-4 h-4 text-emerald-200" /> Unduh PDF
+                </button>
+
                 <button
                   type="button"
                   onClick={handleTriggerA4Print}
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/30"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition-all"
+                  title="Buka dialog cetak printer browser"
                 >
-                  <Printer className="w-4 h-4 text-emerald-200" /> Cetak / Save PDF
+                  <Printer className="w-3.5 h-3.5 text-slate-300" /> Cetak
                 </button>
                 <button
                   type="button"
