@@ -915,9 +915,104 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     }
   }
 
-  // Trigger A4 Rekening Koran Printing
+  // Trigger A4/A3/Letter Rekening Koran Printing via Isolated Clean Iframe
   const handleTriggerA4Print = () => {
-    window.print()
+    const printEl = document.getElementById("printable-rekening-koran")
+    if (!printEl) {
+      window.print()
+      return
+    }
+
+    let iframe = document.getElementById("print-iframe") as HTMLIFrameElement
+    if (!iframe) {
+      iframe = document.createElement("iframe")
+      iframe.id = "print-iframe"
+      iframe.style.position = "fixed"
+      iframe.style.right = "0"
+      iframe.style.bottom = "0"
+      iframe.style.width = "0"
+      iframe.style.height = "0"
+      iframe.style.border = "0"
+      iframe.style.visibility = "hidden"
+      document.body.appendChild(iframe)
+    }
+
+    const doc = iframe.contentWindow?.document
+    if (!doc) return
+
+    const paperSizeCss = printPaperSize === "auto" ? "auto" : `${printPaperSize} ${printOrientation}`
+
+    // Copy all style tags from main document to iframe for exact styling
+    const styleTags = Array.from(document.querySelectorAll("style, link[rel='stylesheet']"))
+      .map((el) => el.outerHTML)
+      .join("\n")
+
+    doc.open()
+    doc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Laporan Rekapitulasi Pembukuan Nota Photo</title>
+          ${styleTags}
+          <style>
+            @page {
+              size: ${paperSizeCss};
+              margin: 8mm 10mm 10mm 10mm;
+            }
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            html, body {
+              width: 100% !important;
+              height: auto !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: white !important;
+              color: #0f172a !important;
+              font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            }
+            table {
+              width: 100% !important;
+              border-collapse: collapse !important;
+              page-break-inside: auto !important;
+            }
+            thead {
+              display: table-header-group !important;
+            }
+            tbody {
+              display: table-row-group !important;
+            }
+            tr {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+            .avoid-break-total {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+          </style>
+        </head>
+        <body>
+          <div style="padding: 10px; background: white;">
+            ${printEl.innerHTML}
+          </div>
+        </body>
+      </html>
+    `)
+    doc.close()
+
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.focus()
+        iframe.contentWindow?.print()
+      } catch (err) {
+        console.error("Print error:", err)
+        window.print()
+      }
+    }, 300)
   }
 
   // Delete Receipt Handler
