@@ -915,104 +915,9 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     }
   }
 
-  // Trigger A4/A3/Letter Rekening Koran Printing via Isolated Clean Iframe
+  // Trigger A4/A3/Letter Rekening Koran Printing
   const handleTriggerA4Print = () => {
-    const printEl = document.getElementById("printable-rekening-koran")
-    if (!printEl) {
-      window.print()
-      return
-    }
-
-    let iframe = document.getElementById("print-iframe") as HTMLIFrameElement
-    if (!iframe) {
-      iframe = document.createElement("iframe")
-      iframe.id = "print-iframe"
-      iframe.style.position = "fixed"
-      iframe.style.right = "0"
-      iframe.style.bottom = "0"
-      iframe.style.width = "0"
-      iframe.style.height = "0"
-      iframe.style.border = "0"
-      iframe.style.visibility = "hidden"
-      document.body.appendChild(iframe)
-    }
-
-    const doc = iframe.contentWindow?.document
-    if (!doc) return
-
-    const paperSizeCss = printPaperSize === "auto" ? "auto" : `${printPaperSize} ${printOrientation}`
-
-    // Copy all style tags from main document to iframe for exact styling
-    const styleTags = Array.from(document.querySelectorAll("style, link[rel='stylesheet']"))
-      .map((el) => el.outerHTML)
-      .join("\n")
-
-    doc.open()
-    doc.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>Laporan Rekapitulasi Pembukuan Nota Photo</title>
-          ${styleTags}
-          <style>
-            @page {
-              size: ${paperSizeCss};
-              margin: 8mm 10mm 10mm 10mm;
-            }
-            * {
-              box-sizing: border-box;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            html, body {
-              width: 100% !important;
-              height: auto !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              background: white !important;
-              color: #0f172a !important;
-              font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-            }
-            table {
-              width: 100% !important;
-              border-collapse: collapse !important;
-              page-break-inside: auto !important;
-            }
-            thead {
-              display: table-header-group !important;
-            }
-            tbody {
-              display: table-row-group !important;
-            }
-            tr {
-              page-break-inside: avoid !important;
-              break-inside: avoid !important;
-            }
-            .avoid-break-total {
-              page-break-inside: avoid !important;
-              break-inside: avoid !important;
-            }
-          </style>
-        </head>
-        <body>
-          <div style="padding: 10px; background: white;">
-            ${printEl.innerHTML}
-          </div>
-        </body>
-      </html>
-    `)
-    doc.close()
-
-    setTimeout(() => {
-      try {
-        iframe.contentWindow?.focus()
-        iframe.contentWindow?.print()
-      } catch (err) {
-        console.error("Print error:", err)
-        window.print()
-      }
-    }, 300)
+    window.print()
   }
 
   // Delete Receipt Handler
@@ -1406,12 +1311,21 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
         @media print {
           @page {
             size: ${printPaperSize === "auto" ? "auto" : `${printPaperSize} ${printOrientation}`};
-            margin: 10mm 10mm 10mm 10mm;
+            margin: 8mm 10mm 10mm 10mm;
           }
 
           * {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+          }
+
+          /* 1. Collapse all non-printable main page containers to zero height */
+          header,
+          main,
+          nav,
+          footer,
+          .no-print {
+            display: none !important;
           }
 
           html, body {
@@ -1425,26 +1339,8 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             color: black !important;
           }
 
-          /* 1. Hide all elements visually on page */
-          body * {
-            visibility: hidden !important;
-          }
-
-          /* 2. Completely hide all .no-print elements */
-          .no-print,
-          .no-print * {
-            display: none !important;
-            visibility: hidden !important;
-          }
-
-          /* 3. Make ONLY #printable-rekening-koran and its children visible */
-          #printable-rekening-koran,
-          #printable-rekening-koran * {
-            visibility: visible !important;
-          }
-
-          /* 4. Position #printable-rekening-koran at absolute top-left (0,0) of printed document */
-          #printable-rekening-koran {
+          /* 2. Position statement print modal overlay at absolute top-left (0,0) of Page 1 */
+          #statement-print-modal-overlay {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
@@ -1453,11 +1349,39 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
+            box-shadow: none !important;
+            border: none !important;
+            overflow: visible !important;
+            display: block !important;
+            backdrop-filter: none !important;
+          }
+
+          #statement-print-modal-overlay > div {
+            max-height: none !important;
+            height: auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            overflow: visible !important;
+            display: block !important;
+            background: white !important;
+          }
+
+          #printable-rekening-koran {
+            position: relative !important;
+            width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
             color: black !important;
             box-shadow: none !important;
             border: none !important;
             overflow: visible !important;
-            z-index: 999999 !important;
+            display: block !important;
           }
 
           table {
