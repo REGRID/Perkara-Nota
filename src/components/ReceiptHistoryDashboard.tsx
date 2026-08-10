@@ -1306,7 +1306,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
   return (
     <div className="w-full space-y-5 pb-12 transition-all duration-300">
-      {/* GLOBAL PRINT STYLES FOR MULTI-PAGE A4 PDF STATEMENT */}
+      {/* GLOBAL PRINT STYLES FOR MULTI-PAGE A4/A3/LETTER PDF STATEMENT */}
       <style jsx global>{`
         @media print {
           @page {
@@ -1330,42 +1330,31 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             color: black !important;
           }
 
-          /* Hide all non-printable controls and modal overlays */
-          .no-print {
+          /* 1. Hide all elements visually on page */
+          body * {
+            visibility: hidden !important;
+          }
+
+          /* 2. Completely hide all .no-print elements */
+          .no-print,
+          .no-print * {
             display: none !important;
+            visibility: hidden !important;
           }
 
-          /* Reset backdrop/overlay container during print */
-          #statement-print-modal-overlay {
-            position: static !important;
-            inset: auto !important;
-            background: transparent !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            overflow: visible !important;
-            display: block !important;
-            backdrop-filter: none !important;
+          /* 3. Make ONLY #printable-rekening-koran and its children visible */
+          #printable-rekening-koran,
+          #printable-rekening-koran * {
+            visibility: visible !important;
           }
 
-          #statement-print-modal-overlay > div {
-            max-height: none !important;
-            height: auto !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            border: none !important;
-            box-shadow: none !important;
-            border-radius: 0 !important;
-            overflow: visible !important;
-            display: block !important;
-            background: white !important;
-          }
-
-          /* Printable document body */
+          /* 4. Position #printable-rekening-koran at absolute top-left (0,0) of printed document */
           #printable-rekening-koran {
-            position: static !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
             width: 100% !important;
             height: auto !important;
-            max-height: none !important;
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
@@ -1373,7 +1362,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             box-shadow: none !important;
             border: none !important;
             overflow: visible !important;
-            display: block !important;
+            z-index: 999999 !important;
           }
 
           table {
