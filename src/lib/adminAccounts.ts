@@ -3,9 +3,9 @@ import fs from "fs"
 import path from "path"
 
 export const DEFAULT_ADMINS = [
-  { username: "rama", defaultPass: "adminnota123", role: "ADMIN" },
-  { username: "refo", defaultPass: "adminnota456", role: "ADMIN" },
-  { username: "karyawan", defaultPass: "PerkaraKopi", role: "KARYAWAN" },
+  { username: "rama", defaultPass: process.env.ADMIN_A_PASSWORD || "", role: "ADMIN" },
+  { username: "refo", defaultPass: process.env.ADMIN_B_PASSWORD || "", role: "ADMIN" },
+  { username: "karyawan", defaultPass: process.env.KARYAWAN_PASSWORD || "", role: "KARYAWAN" },
 ]
 
 const LOCAL_PASSWORDS_FILE = path.join(process.cwd(), "admin_passwords.json")
@@ -108,15 +108,18 @@ export async function getAdminPassword(username: string): Promise<string | null>
 
     // 3. Fallback: Default Credentials / Environment Variables
     const defaultItem = DEFAULT_ADMINS.find((a) => a.username === cleanUser)
-    if (defaultItem) {
+    if (defaultItem && defaultItem.defaultPass) {
       return defaultItem.defaultPass.trim()
     }
 
     if (cleanUser === (process.env.ADMIN_A_USERNAME || "rama").toLowerCase()) {
-      return (process.env.ADMIN_A_PASSWORD || "adminnota123").trim()
+      return (process.env.ADMIN_A_PASSWORD || "").trim()
     }
     if (cleanUser === (process.env.ADMIN_B_USERNAME || "refo").toLowerCase()) {
-      return (process.env.ADMIN_B_PASSWORD || "adminnota456").trim()
+      return (process.env.ADMIN_B_PASSWORD || "").trim()
+    }
+    if (cleanUser === (process.env.KARYAWAN_USERNAME || "karyawan").toLowerCase()) {
+      return (process.env.KARYAWAN_PASSWORD || "").trim()
     }
 
     return null
@@ -168,7 +171,8 @@ export async function getUserAccountDetails(username: string): Promise<{ usernam
     }
 
     if (cleanUser === "karyawan") {
-      return { username: "karyawan", password: "PerkaraKopi", role: "KARYAWAN" }
+      const pass = process.env.KARYAWAN_PASSWORD || (await getAdminPassword("karyawan")) || ""
+      return { username: "karyawan", password: pass, role: "KARYAWAN" }
     }
 
     const pass = await getAdminPassword(cleanUser)
