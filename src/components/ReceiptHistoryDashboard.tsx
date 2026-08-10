@@ -311,7 +311,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     try {
       const res = await fetch(`/api/receipts/${receiptToSettle.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           ...receiptToSettle,
           paymentStatus: "Lunas",
