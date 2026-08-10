@@ -224,8 +224,10 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isBackupRestoring, setIsBackupRestoring] = useState(false)
 
-  // Rekening Koran Print Modal State
+  // Rekening Koran Print Modal State & Page Settings (A3, A4, Letter, Legal, Portrait, Landscape)
   const [showStatementPrintModal, setShowStatementPrintModal] = useState(false)
+  const [printPaperSize, setPrintPaperSize] = useState<"A4" | "A3" | "Letter" | "Legal" | "auto">("A4")
+  const [printOrientation, setPrintOrientation] = useState<"portrait" | "landscape">("portrait")
 
   // Kelola Data & Export Combined Modal State
   const [showDataOptionsModal, setShowDataOptionsModal] = useState(false)
@@ -1308,7 +1310,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       <style jsx global>{`
         @media print {
           @page {
-            size: A4 portrait;
+            size: ${printPaperSize === "auto" ? "auto" : `${printPaperSize} ${printOrientation}`};
             margin: 10mm 10mm 10mm 10mm;
           }
 
@@ -2357,9 +2359,9 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       {/* AUTHENTIC BANK STATEMENT (MANDIRI REFERENCE STYLE) A4 PRINT MODAL */}
       {showStatementPrintModal && (
         <div id="statement-print-modal-overlay" className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-5xl max-h-[96vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className={`bg-white rounded-3xl border border-slate-200 shadow-2xl w-full ${printOrientation === "landscape" || printPaperSize === "A3" ? "max-w-[95vw]" : "max-w-5xl"} max-h-[96vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200`}>
             {/* Modal Control Bar */}
-            <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-slate-900 text-white no-print">
+            <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-900 text-white no-print">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold">
                   <Building2 className="w-5 h-5" />
@@ -2369,33 +2371,62 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                     Pratinjau Cetak Laporan Rekapitulasi Pembukuan PDF
                   </h3>
                   <p className="text-xs text-slate-300 font-medium">
-                    Tampilan presisi format dokumen resmi untuk pencetakan A4.
+                    Tampilan presisi format dokumen resmi (A4/A3/Letter/Legal - Portrait & Landscape).
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Selector Ukuran Kertas */}
+                <div className="flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700 text-xs">
+                  <span className="text-slate-400 font-bold">Kertas:</span>
+                  <select
+                    value={printPaperSize}
+                    onChange={(e) => setPrintPaperSize(e.target.value as any)}
+                    className="bg-transparent text-white font-bold cursor-pointer focus:outline-none text-xs"
+                  >
+                    <option value="A4" className="bg-slate-900 text-white">A4 (210 x 297 mm)</option>
+                    <option value="A3" className="bg-slate-900 text-white">A3 (297 x 420 mm)</option>
+                    <option value="Letter" className="bg-slate-900 text-white">Letter (216 x 279 mm)</option>
+                    <option value="Legal" className="bg-slate-900 text-white">Legal (216 x 356 mm)</option>
+                    <option value="auto" className="bg-slate-900 text-white">Bebas / Auto Browser</option>
+                  </select>
+                </div>
+
+                {/* Selector Orientasi Kertas */}
+                <div className="flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700 text-xs">
+                  <span className="text-slate-400 font-bold">Orientasi:</span>
+                  <select
+                    value={printOrientation}
+                    onChange={(e) => setPrintOrientation(e.target.value as any)}
+                    className="bg-transparent text-white font-bold cursor-pointer focus:outline-none text-xs"
+                  >
+                    <option value="portrait" className="bg-slate-900 text-white">Portrait (Tegak)</option>
+                    <option value="landscape" className="bg-slate-900 text-white">Landscape (Mendatar)</option>
+                  </select>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => {
                     setExportConfirmFormat("statement")
                     handleProceedExport()
                   }}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs transition-colors shadow-xs"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs transition-colors shadow-xs"
                 >
-                  <Download className="w-3.5 h-3.5" /> Unduh Excel Laporan
+                  <Download className="w-3.5 h-3.5" /> Excel
                 </button>
                 <button
                   type="button"
                   onClick={handleTriggerA4Print}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/30"
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/30"
                 >
                   <Printer className="w-4 h-4 text-emerald-200" /> Cetak / Save PDF
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowStatementPrintModal(false)}
-                  className="p-2 text-slate-400 hover:text-white transition-colors"
+                  className="p-1.5 text-slate-400 hover:text-white transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
