@@ -296,10 +296,10 @@ export function VerificationSplitScreen({
   const initialCleanNote = (existingNote || "").replace(/\[Dibayar oleh: [^\]]+\]\s*/g, "")
 
   // Form State
-  const [merchantName, setMerchantName] = useState(initialResult.merchantName || "Nota / Toko")
+  const [merchantName, setMerchantName] = useState(initialResult.merchantName ?? "")
   const [date, setDate] = useState(initialResult.date || new Date().toISOString().split("T")[0])
   const [items, setItems] = useState<ParsedItem[]>(initialResult.items || [])
-  const [taxAmount, setTaxAmount] = useState<number>(initialResult.taxAmount || 0)
+  const [taxAmount, setTaxAmount] = useState<number | "">(initialResult.taxAmount ?? 0)
   const [paymentMethod, setPaymentMethod] = useState<string>(existingPaymentMethod || "Cash")
   const [paymentStatus, setPaymentStatus] = useState<string>(existingPaymentStatus || "Lunas")
   const [paidByPerson, setPaidByPerson] = useState<string>(initialPaidBy)
@@ -343,12 +343,12 @@ export function VerificationSplitScreen({
 
   // Update initial form state when initialResult changes (e.g. Next item in batch queue)
   useEffect(() => {
-    setMerchantName(initialResult.merchantName || "Nota / Toko")
+    setMerchantName(initialResult.merchantName ?? "")
     setDate(initialResult.date || new Date().toISOString().split("T")[0])
     setItems(initialResult.items || [])
-    setTaxAmount(initialResult.taxAmount || 0)
+    setTaxAmount(initialResult.taxAmount ?? 0)
     setErrorMsg("")
-  }, [initialResult])
+  }, [batchInfo?.currentIndex, editingReceiptId])
 
   // Auto-calculated subtotal from items
   const itemsSubtotal = items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0)
@@ -362,7 +362,7 @@ export function VerificationSplitScreen({
           merchantName,
           date,
           subtotal: itemsSubtotal,
-          taxAmount,
+          taxAmount: Number(taxAmount) || 0,
           totalAmount: calculatedTotal,
           items,
         },
@@ -890,8 +890,11 @@ export function VerificationSplitScreen({
                           <input
                             type="number"
                             min="0"
-                            value={item.price || ""}
-                            onChange={(e) => handleItemChange(idx, "price", parseFloat(e.target.value) || 0)}
+                            value={item.price === 0 ? 0 : (item.price ?? "")}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              handleItemChange(idx, "price", val === "" ? "" : parseFloat(val))
+                            }}
                             placeholder="0"
                             className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 text-xs font-bold text-slate-900 font-mono bg-white"
                           />
@@ -904,8 +907,12 @@ export function VerificationSplitScreen({
                           <input
                             type="number"
                             min="1"
-                            value={item.quantity || 1}
-                            onChange={(e) => handleItemChange(idx, "quantity", parseInt(e.target.value, 10) || 1)}
+                            value={item.quantity === undefined || item.quantity === null ? "" : item.quantity}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              handleItemChange(idx, "quantity", val === "" ? "" : parseInt(val, 10))
+                            }}
+                            placeholder="1"
                             className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 text-xs font-bold text-slate-900 font-mono bg-white"
                           />
                         </div>
@@ -1046,8 +1053,11 @@ export function VerificationSplitScreen({
                   <input
                     type="number"
                     min="0"
-                    value={taxAmount || ""}
-                    onChange={(e) => setTaxAmount(parseFloat(e.target.value) || 0)}
+                    value={taxAmount === 0 ? 0 : (taxAmount ?? "")}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setTaxAmount(val === "" ? "" : parseFloat(val))
+                    }}
                     placeholder="0"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 text-xs font-bold text-slate-900 bg-white font-mono"
                   />
