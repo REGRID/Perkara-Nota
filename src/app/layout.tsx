@@ -17,13 +17,13 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: "Nota-Photo AI — Digital Struk & Faktur",
-  description: "Aplikasi Digitalisasi Struk, Faktur, & Surat Jalan Fisik dengan AI Gemini Cloud",
+  title: "Perkara Nota — Pemindai & Pembukuan Struk",
+  description: "Aplikasi Digitalisasi Struk, Faktur, & Pembukuan Perkara Kopi",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Nota Photo AI",
+    title: "Perkara Nota",
   },
   verification: {
     google: "us2F4BU3Hm51-MI_cnTqBGnFRQpcjrTOzPOMmbKGePE",

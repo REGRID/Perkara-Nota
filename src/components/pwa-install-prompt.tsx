@@ -71,11 +71,11 @@ export function PwaInstallPrompt() {
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-lg text-slate-950 font-black text-xl shrink-0">
-              NP
+              PN
             </div>
             <div>
               <h4 className="font-extrabold text-sm text-white flex items-center gap-1.5">
-                Instal Aplikasi Nota Photo <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                Instal Aplikasi Perkara Nota <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
               </h4>
               <p className="text-xs text-slate-300 leading-snug">
                 Buka secara Fullscreen tanpa Search Bar / Address Bar Chrome di Tablet Anda.

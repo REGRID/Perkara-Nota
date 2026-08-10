@@ -1,7 +1,7 @@
 {
-  "name": "Nota-Photo AI - Struk & Faktur",
-  "short_name": "Nota Photo",
-  "description": "Aplikasi Digitalisasi Struk, Faktur, & Surat Jalan Fisik dengan AI Gemini Cloud",
+  "name": "Perkara Nota - Struk & Pembukuan",
+  "short_name": "Perkara Nota",
+  "description": "Aplikasi Digitalisasi Struk, Faktur, & Pembukuan Perkara Kopi",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

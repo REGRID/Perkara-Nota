@@ -84,7 +84,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
           </div>
           <div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">
-              Nota-Photo
+              Perkara Nota
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 font-semibold mt-1">
               Pemindai & Pembukuan Nota

@@ -519,7 +519,7 @@ export default function HomePage() {
             </div>
             <div>
               <h1 className="font-extrabold text-base sm:text-lg tracking-tight leading-tight flex items-center gap-2">
-                Nota-Photo
+                Perkara Nota
               </h1>
               <p className="text-[11px] text-slate-400 hidden sm:block">
                 Pemindai & Rekap Nota Digital
