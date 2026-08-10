@@ -2,7 +2,8 @@ Set WshShell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 
 strDesktop = WshShell.SpecialFolders("Desktop")
-strProjectDir = "d:\WEBSITE BUILDING\Nota-Photo"
+scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
+strProjectDir = fso.GetParentFolderName(scriptDir)
 
 ' 1. Main Server Shortcut
 strBatPath1 = strProjectDir & "\START_NOTA_PHOTO.bat"

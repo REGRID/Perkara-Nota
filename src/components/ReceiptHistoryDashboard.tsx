@@ -45,6 +45,7 @@ import {
   User,
   ShieldCheck,
   Image as ImageIcon,
+  Bell,
 } from "lucide-react"
 import {
   ResponsiveContainer,
@@ -62,6 +63,7 @@ import {
 } from "recharts"
 import { ImageInteractiveLightbox } from "@/components/ImageInteractiveLightbox"
 import { getAuthHeaders } from "@/lib/authClient"
+import { requestNotificationPermission, sendNativeOSNotification } from "@/lib/pwaNotification"
 
 export interface ReceiptItem {
   id: string
@@ -234,6 +236,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   // Multi-Selection State for Bulk Actions
   const [selectedReceiptIds, setSelectedReceiptIds] = useState<string[]>([])
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [isBulkSettling, setIsBulkSettling] = useState(false)
 
   // Status Filter Panel Toggle & Filter States
   const [showStatusFilterPanel, setShowStatusFilterPanel] = useState<boolean>(false)
@@ -259,6 +262,47 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
+
+  // Notification State
+  const [notifications, setNotifications] = useState<any[]>([])
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState<number>(0)
+  const [showNotificationsModal, setShowNotificationsModal] = useState<boolean>(false)
+  const notifiedIdsRef = useRef<Set<string>>(new Set())
+
+  // Fetch Notifications & Trigger Native OS System Notifications
+  const fetchNotifications = async () => {
+    try {
+      const res = await fetch("/api/notifications", {
+        headers: getAuthHeaders(),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const fetchedList: any[] = data.notifications || []
+        setNotifications(fetchedList)
+        setUnreadNotificationCount(data.unreadCount || 0)
+
+        // Trigger Native OS System Notifications for new unread notifications
+        fetchedList.forEach((n) => {
+          if (!n.isRead && n.sender.toLowerCase() !== currentAdminUser.toLowerCase()) {
+            if (!notifiedIdsRef.current.has(n.id)) {
+              notifiedIdsRef.current.add(n.id)
+              sendNativeOSNotification(`🔔 ${n.title}`, n.message)
+            }
+          }
+        })
+      }
+    } catch (e) {
+      console.error("Fetch notifications error:", e)
+    }
+  }
+
+  // Targeted Settle Modal State (Settle with Payment Proof Upload)
+  const [showSettleModal, setShowSettleModal] = useState<boolean>(false)
+  const [settleTargetTitle, setSettleTargetTitle] = useState<string>("")
+  const [settleTargetPerson, setSettleTargetPerson] = useState<string>("")
+  const [settleTargetReceipts, setSettleTargetReceipts] = useState<ReceiptData[]>([])
+  const [paymentProofImage, setPaymentProofImage] = useState<string | null>(null)
+  const [isSubmittingSettle, setIsSubmittingSettle] = useState<boolean>(false)
 
   // Handle Settle Receipt (Lunasi Nota)
   const handleSettleReceipt = async (receiptToSettle: ReceiptData) => {
@@ -424,10 +468,107 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     }
   }
 
+  const markAllNotificationsAsRead = async () => {
+    try {
+      await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ markAllRead: true }),
+      })
+      setUnreadNotificationCount(0)
+      setNotifications((prev: any[]) => prev.map((n: any) => ({ ...n, isRead: true })))
+    } catch (e) {
+      console.error("Mark notifications read error:", e)
+    }
+  }
+
+  const handleOpenSettleModalForPerson = (personName: string) => {
+    const unsettledForPerson = allReceipts.filter((r) => {
+      if (isReceiptSettled(r.paymentStatus)) return false
+      const noteText = r.note || ""
+      const match = noteText.match(/\[Dibayar oleh: ([^\]]+)\]/)
+      const paidBy = match ? match[1].trim() : ""
+      return paidBy.toLowerCase() === personName.toLowerCase()
+    })
+
+    if (unsettledForPerson.length === 0) {
+      alert(`Tidak ada nota yang belum direimburse / tempo untuk ${personName}.`)
+      return
+    }
+
+    setSettleTargetTitle(`Pelunasan Talangan: ${personName}`)
+    setSettleTargetPerson(personName)
+    setSettleTargetReceipts(unsettledForPerson)
+    setPaymentProofImage(null)
+    setShowSettleModal(true)
+  }
+
+  const handleOpenSettleModalForSelection = () => {
+    const selectedObjList = allReceipts.filter((r) => selectedReceiptIds.includes(r.id))
+    if (selectedObjList.length === 0) return
+
+    setSettleTargetTitle(`Pelunasan ${selectedObjList.length} Nota Terpilih`)
+    setSettleTargetPerson("")
+    setSettleTargetReceipts(selectedObjList)
+    setPaymentProofImage(null)
+    setShowSettleModal(true)
+  }
+
+  const handleSubmitSettleWithProof = async () => {
+    if (settleTargetReceipts.length === 0) return
+    if (!paymentProofImage) {
+      alert("Wajib mengunggah / melampirkan foto bukti pembayaran atau struk transfer terlebih dahulu.")
+      return
+    }
+
+    const ids = settleTargetReceipts.map((r) => r.id)
+    const totalAmt = settleTargetReceipts.reduce((sum, r) => sum + r.totalAmount, 0)
+
+    setIsSubmittingSettle(true)
+    try {
+      const res = await fetch("/api/receipts", {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          ids,
+          paymentStatus: "Lunas",
+          proofImageUrl: paymentProofImage,
+          personName: settleTargetPerson,
+          totalAmount: totalAmt,
+        }),
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        alert(data.message || `Permintaan pelunasan (${ids.length} nota) berhasil diajukan ke Admin lain.`)
+        setShowSettleModal(false)
+        setSelectedReceiptIds([])
+        setPaymentProofImage(null)
+        await fetchPendingApprovals()
+        await fetchNotifications()
+      } else {
+        alert(data.error || "Gagal mengajukan pelunasan nota.")
+      }
+    } catch (e: any) {
+      alert("Terjadi kesalahan saat mengajukan pelunasan.")
+    } finally {
+      setIsSubmittingSettle(false)
+    }
+  }
+
   useEffect(() => {
     fetchCategories()
     fetchAllReceipts(false)
     fetchPendingApprovals()
+    fetchNotifications()
+
+    // Polling every 10 seconds for real-time background sync
+    const interval = setInterval(() => {
+      fetchPendingApprovals()
+      fetchNotifications()
+    }, 10000)
+
+    return () => clearInterval(interval)
   }, [])
 
   // Parent Category Tabs List strictly built from database hierarchy
@@ -545,7 +686,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   // Reset to Page 1 when filters change
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, dateRangeFilter, startDate, endDate, selectedSubCategory])
+  }, [searchQuery, dateRangeFilter, startDate, endDate, selectedCategory, selectedSubCategory, selectedStatusFilter, selectedPersonFilter])
 
   // Build lookup map for receipts that have pending approval requests
   const pendingApprovalMap = useMemo(() => {
@@ -554,12 +695,12 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       if (req.receiptId) {
         map[req.receiptId] = { actionType: req.actionType, requestedBy: req.requestedBy, id: req.id }
       }
-      if (req.actionType === "BULK_DELETE" && req.payload) {
+      if ((req.actionType === "BULK_DELETE" || req.actionType === "BULK_SETTLE") && req.payload) {
         try {
           const payloadObj = JSON.parse(req.payload)
           if (payloadObj.ids && Array.isArray(payloadObj.ids)) {
             payloadObj.ids.forEach((id: string) => {
-              map[id] = { actionType: "BULK_DELETE", requestedBy: req.requestedBy, id: req.id }
+              map[id] = { actionType: req.actionType, requestedBy: req.requestedBy, id: req.id }
             })
           }
         } catch (e) {}
@@ -623,6 +764,41 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       alert("Gagal menghapus beberapa nota terpilih")
     } finally {
       setIsBulkDeleting(false)
+    }
+  }
+
+  const handleBulkSettle = async () => {
+    if (selectedReceiptIds.length === 0) return
+    if (!confirm(`Ajukan pelunasan massal untuk ${selectedReceiptIds.length} nota yang dipilih?`)) return
+
+    setIsBulkSettling(true)
+    try {
+      const res = await fetch("/api/receipts", {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ ids: selectedReceiptIds, paymentStatus: "Lunas" }),
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        if (data.pendingApproval) {
+          alert(data.message || `Permintaan pelunasan massal (${selectedReceiptIds.length} nota) telah diajukan. Menunggu verifikasi dari admin lain.`)
+          await fetchPendingApprovals()
+        } else {
+          setAllReceipts((prev) =>
+            prev.map((r) =>
+              selectedReceiptIds.includes(r.id) ? { ...r, paymentStatus: "Lunas" } : r
+            )
+          )
+        }
+        setSelectedReceiptIds([])
+      } else {
+        alert(data.error || "Gagal mengajukan pelunasan nota terpilih")
+      }
+    } catch (e) {
+      alert("Gagal mengajukan pelunasan nota terpilih")
+    } finally {
+      setIsBulkSettling(false)
     }
   }
 
@@ -1825,20 +2001,32 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
           {/* Bulk Action Controls */}
           {selectedReceiptIds.length > 0 && (
-            <div className="flex items-center gap-2 animate-in fade-in duration-150">
+            <div className="flex items-center gap-2 animate-in fade-in duration-150 flex-wrap">
+              <button
+                type="button"
+                onClick={handleBulkSettle}
+                disabled={isBulkSettling || isBulkDeleting}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
+                title="Tandai Lunas untuk semua nota yang dicentang"
+              >
+                {isBulkSettling ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-100" />}
+                Lunasi Terpilih ({selectedReceiptIds.length})
+              </button>
+
               <button
                 type="button"
                 onClick={handleBulkDelete}
-                disabled={isBulkDeleting}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs transition-colors shadow-xs disabled:opacity-50"
+                disabled={isBulkDeleting || isBulkSettling}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
               >
                 {isBulkDeleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                 Hapus Terpilih ({selectedReceiptIds.length})
               </button>
+
               <button
                 type="button"
                 onClick={() => setSelectedReceiptIds([])}
-                className="px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs transition-colors"
+                className="px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
               >
                 Batal Pilih
               </button>
@@ -3171,7 +3359,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                               className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0 ${
                                 reqItem.actionType === "DELETE" || reqItem.actionType === "BULK_DELETE"
                                   ? "bg-red-100 text-red-700 border border-red-200"
-                                  : reqItem.actionType === "SETTLE"
+                                  : reqItem.actionType === "SETTLE" || reqItem.actionType === "BULK_SETTLE"
                                   ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
                                   : "bg-blue-100 text-blue-800 border border-blue-200"
                               }`}
@@ -3180,6 +3368,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                               {reqItem.actionType === "BULK_DELETE" && `HAPUS MASSAL (${payloadObj.ids?.length || 0})`}
                               {reqItem.actionType === "EDIT" && "EDIT"}
                               {reqItem.actionType === "SETTLE" && "PELUNASAN"}
+                              {reqItem.actionType === "BULK_SETTLE" && `PELUNASAN MASSAL (${payloadObj.ids?.length || 0})`}
                             </span>
 
                             <div className="min-w-0 flex-1">
@@ -3482,6 +3671,211 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
               >
                 Tutup
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TARGETED SETTLE CONFIRMATION & PAYMENT PROOF UPLOAD MODAL */}
+      {showSettleModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200 space-y-0">
+            {/* Modal Header */}
+            <div className="p-5 bg-gradient-to-r from-emerald-900 to-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 text-emerald-400 flex items-center justify-center font-bold shrink-0">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white leading-tight">
+                    {settleTargetTitle}
+                  </h3>
+                  <p className="text-xs text-emerald-200/80 font-medium">
+                    Lampirkan Bukti Transfer / Pembayaran Kas
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowSettleModal(false)}
+                className="p-1.5 text-slate-400 hover:text-white transition-colors rounded-xl"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5 bg-slate-50/50">
+              {/* Nominal Total Card */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center space-y-1">
+                <span className="text-[11px] font-black text-emerald-800 uppercase tracking-wider block">
+                  TOTAL NOMINAL YANG HARUS DILUNASI
+                </span>
+                <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-700 tracking-tight block">
+                  Rp {Math.round(settleTargetReceipts.reduce((acc, r) => acc + r.totalAmount, 0)).toLocaleString("id-ID")}
+                </span>
+                <span className="text-xs text-emerald-800 font-bold block">
+                  Cakupan: {settleTargetReceipts.length} Nota Transaksi
+                </span>
+              </div>
+
+              {/* Upload Foto Bukti Pembayaran */}
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <UploadCloud className="w-4 h-4 text-emerald-600" />
+                  Upload Foto Bukti Transfer / Pembayaran <span className="text-red-500">*</span>
+                </label>
+
+                {paymentProofImage ? (
+                  <div className="relative rounded-2xl border-2 border-emerald-500 overflow-hidden bg-slate-900 group">
+                    <img
+                      src={paymentProofImage}
+                      alt="Bukti Pembayaran"
+                      className="w-full h-44 object-contain mx-auto"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPaymentProofImage(null)}
+                      className="absolute top-2 right-2 p-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
+                    >
+                      Ganti Foto
+                    </button>
+                  </div>
+                ) : (
+                  <label className="border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-white p-6 rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all hover:bg-emerald-50/20 group">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          const reader = new FileReader()
+                          reader.onload = (event) => {
+                            setPaymentProofImage(event.target?.result as string)
+                          }
+                          reader.readAsDataURL(file)
+                        }
+                      }}
+                    />
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-100/60 text-emerald-600 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                      <UploadCloud className="w-6 h-6" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-800 text-center">
+                      Klik untuk Memilih / Ambil Foto Bukti Transfer
+                    </span>
+                    <span className="text-[10.5px] text-slate-400 text-center font-medium mt-0.5">
+                      Struk transfer M-Banking, Kasir, atau Bukti Kwitansi
+                    </span>
+                  </label>
+                )}
+              </div>
+
+              {/* List Ringkasan Nota yang Dilunasi */}
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                <span className="text-[10.5px] font-black text-slate-500 uppercase tracking-wider block">
+                  Rincian Nota Terlibat ({settleTargetReceipts.length}):
+                </span>
+                <div className="space-y-1">
+                  {settleTargetReceipts.map((r) => (
+                    <div key={r.id} className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 text-xs">
+                      <span className="font-bold text-slate-800 truncate max-w-[200px]">
+                        {r.merchantName} ({r.date})
+                      </span>
+                      <span className="font-extrabold font-mono text-emerald-600">
+                        Rp {Math.round(r.totalAmount).toLocaleString("id-ID")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Modal Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowSettleModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 font-bold text-slate-700 hover:bg-slate-100 text-xs transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={!paymentProofImage || isSubmittingSettle}
+                  onClick={handleSubmitSettleWithProof}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {isSubmittingSettle ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="w-4 h-4 text-emerald-200" />
+                  )}
+                  <span>Ajukan Pelunasan ke Admin 2</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NOTIFICATION CENTER MODAL */}
+      {showNotificationsModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap className="w-5 h-5 text-amber-400 fill-amber-400" />
+                <h3 className="font-black text-sm text-white">Notifikasi Aktivitas Admin</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => requestNotificationPermission()}
+                  className="text-[10px] font-extrabold bg-amber-400 hover:bg-amber-300 text-slate-950 px-2 py-0.5 rounded-lg flex items-center gap-1 shadow-2xs cursor-pointer"
+                  title="Minta izin Notifikasi Pop-up Native HP / Windows"
+                >
+                  <Bell className="w-3 h-3" /> Notifikasi HP
+                </button>
+                <button
+                  type="button"
+                  onClick={markAllNotificationsAsRead}
+                  className="text-[11px] font-bold text-emerald-400 hover:underline cursor-pointer"
+                >
+                  Tandai Dibaca
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNotificationsModal(false)}
+                  className="p-1 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 max-h-[70vh] overflow-y-auto space-y-2.5 bg-slate-50/50">
+              {notifications.length === 0 ? (
+                <p className="text-xs font-semibold text-slate-400 text-center py-8">
+                  Belum ada notifikasi aktivitas baru.
+                </p>
+              ) : (
+                notifications.map((n: any) => (
+                  <div
+                    key={n.id}
+                    className={`p-3 rounded-2xl border text-xs space-y-1 transition-all ${
+                      !n.isRead ? "bg-amber-50/80 border-amber-200" : "bg-white border-slate-200 opacity-80"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-slate-900">{n.title}</span>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        {new Date(n.createdAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                    <p className="text-slate-600 font-medium leading-snug">{n.message}</p>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

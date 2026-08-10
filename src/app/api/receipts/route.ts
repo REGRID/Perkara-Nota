@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
 import { recordVerifiedReceiptLearning } from "@/lib/selfLearningEngine"
-import { getAdminUserFromRequest } from "@/lib/authHelper"
+import { getAdminUserFromRequest, getAdminRoleFromRequest, getStaffNameFromRequest } from "@/lib/authHelper"
 import { getOrSeedCategories } from "@/lib/categories"
 import { compressBase64Image } from "@/lib/imageCompressor"
 
@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
     const parentNames: string[] = categoryHierarchy.map((c) => c.name)
 
     // Normalize item categories and strip legacy [Dibayar oleh: ...] from non-personal payment receipts
-    const normalizedReceipts = receipts.map((r: any) => {
+    let normalizedReceipts = receipts.map((r: any) => {
       const isPersonal =
         r.paymentMethod === "Dana Pribadi Owner" || r.paymentMethod === "Talangan Karyawan"
       const cleanedNote =
@@ -120,10 +120,24 @@ export async function GET(req: NextRequest) {
       }
     })
 
+    // Role KARYAWAN Data Scoping: Only return receipts uploaded by Karyawan or Talangan Karyawan
+    const userRole = getAdminRoleFromRequest(req)
+    if (userRole === "KARYAWAN") {
+      normalizedReceipts = normalizedReceipts.filter((r: any) => {
+        const noteText = (r.note || "").toLowerCase()
+        const method = (r.paymentMethod || "").toLowerCase()
+        return (
+          method === "talangan karyawan" ||
+          noteText.includes("(karyawan)") ||
+          noteText.includes("diunggah oleh:")
+        )
+      })
+    }
+
     listCache = { key: cacheKey, data: normalizedReceipts, timestamp: now }
 
     const response = NextResponse.json(normalizedReceipts)
-    response.headers.set("Cache-Control", "public, s-maxage=5, stale-while-revalidate=30")
+    response.headers.set("Cache-Control", "public, s-maxage=5, stale-while-revalidate=15")
     return response
   } catch (error: any) {
     console.error("GET Receipts Error:", error)
@@ -146,13 +160,26 @@ export async function POST(req: NextRequest) {
 
     invalidateReceiptsListCache()
 
+    const userRole = getAdminRoleFromRequest(req)
+    const staffName = getStaffNameFromRequest(req)
+
     const isPersonal =
       paymentMethod === "Dana Pribadi Owner" || paymentMethod === "Talangan Karyawan"
-    const cleanedNote = note
+    
+    let cleanedNote = note
       ? isPersonal
         ? note
         : note.replace(/\[Dibayar oleh: [^\]]+\]\s*/g, "").trim() || null
       : null
+
+    if (userRole === "KARYAWAN" && staffName) {
+      const uploaderTag = `[Diunggah oleh: ${staffName} (Karyawan)]`
+      if (!cleanedNote) {
+        cleanedNote = uploaderTag
+      } else if (!cleanedNote.includes("[Diunggah oleh:")) {
+        cleanedNote = `${cleanedNote} ${uploaderTag}`
+      }
+    }
 
     const compressedImageUrl = await compressBase64Image(imageUrl)
 
@@ -244,5 +271,64 @@ export async function DELETE(req: NextRequest) {
   } catch (error: any) {
     console.error("Bulk DELETE Receipts Error:", error)
     return NextResponse.json({ error: "Gagal mengajukan hapus nota secara massal" }, { status: 500 })
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const adminUser = getAdminUserFromRequest(req)
+    const { ids, paymentStatus, proofImageUrl, personName, totalAmount } = await req.json()
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return NextResponse.json({ error: "ID nota yang akan diperbarui tidak valid" }, { status: 400 })
+    }
+
+    invalidateReceiptsListCache()
+
+    const statusToSet = paymentStatus || "Lunas"
+    const compressedProof = proofImageUrl ? await compressBase64Image(proofImageUrl) : null
+
+    const payloadObj = {
+      ids,
+      paymentStatus: statusToSet,
+      proofImageUrl: compressedProof,
+      personName: personName || "",
+      totalAmount: Number(totalAmount) || 0,
+    }
+
+    const { data: approval, error } = await supabase
+      .from("pending_approvals")
+      .insert({
+        actionType: "BULK_SETTLE",
+        requestedBy: adminUser,
+        status: "PENDING",
+        payload: JSON.stringify(payloadObj),
+      })
+      .select("*")
+      .single()
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    // Insert Notification for other admin
+    const recipientAdmin = adminUser.toLowerCase() === "rama" ? "refo" : "rama"
+    await supabase.from("notifications").insert({
+      recipient: recipientAdmin,
+      sender: adminUser,
+      type: "REQUEST",
+      title: `Pengajuan Pelunasan (${ids.length} Nota)`,
+      message: `Admin ${adminUser} mengajukan pelunasan untuk ${ids.length} nota${personName ? ` (${personName})` : ''} sebesar Rp ${(Number(totalAmount) || 0).toLocaleString("id-ID")}.`,
+      approvalId: approval.id,
+      isRead: false,
+    })
+
+    return NextResponse.json({
+      pendingApproval: true,
+      message: `Permintaan pelunasan massal (${ids.length} nota) berhasil diajukan oleh ${adminUser}. Menunggu verifikasi dari admin lain.`,
+      approval,
+    })
+  } catch (error: any) {
+    console.error("Bulk PATCH Receipts Error:", error)
+    return NextResponse.json({ error: error.message || "Gagal mengajukan pelunasan nota secara massal" }, { status: 500 })
   }
 }

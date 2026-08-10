@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
-import { getAdminUserFromRequest } from "@/lib/authHelper"
+import { getAdminUserFromRequest, getAdminRoleFromRequest } from "@/lib/authHelper"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -12,6 +12,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const rejectingAdmin = getAdminUserFromRequest(req)
+    const userRole = getAdminRoleFromRequest(req)
+
+    if (userRole === "KARYAWAN") {
+      return NextResponse.json({
+        error: "Akses Ditolak: Role Karyawan tidak diizinkan menolak/memverifikasi permintaan. Penolakan/Persetujuan wajib dilakukan oleh Admin (Rama / Refo).",
+      }, { status: 403 })
+    }
     const body = await req.json()
     const { reason } = body || {}
 
@@ -56,6 +63,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       console.error("Update Reject Status Error:", updateErr)
       throw new Error(updateErr.message)
     }
+
+    // Insert notification to requesting admin
+    const requester = pendingApproval.requestedBy
+    await supabase.from("notifications").insert({
+      recipient: requester.toLowerCase(),
+      sender: rejectingAdmin,
+      type: "REJECT",
+      title: "Permintaan Ditolak ❌",
+      message: `Admin ${rejectingAdmin} menolak permintaan ${pendingApproval.actionType} Anda. Alasan: ${reason || "Tidak disetujui"}.`,
+      approvalId: cleanId,
+      isRead: false,
+    })
 
     return NextResponse.json({
       success: true,

@@ -3,8 +3,9 @@ import fs from "fs"
 import path from "path"
 
 export const DEFAULT_ADMINS = [
-  { username: "rama", defaultPass: "adminnota123" },
-  { username: "refo", defaultPass: "adminnota456" },
+  { username: "rama", defaultPass: "adminnota123", role: "ADMIN" },
+  { username: "refo", defaultPass: "adminnota456", role: "ADMIN" },
+  { username: "karyawan", defaultPass: "PerkaraKopi", role: "KARYAWAN" },
 ]
 
 const LOCAL_PASSWORDS_FILE = path.join(process.cwd(), "admin_passwords.json")
@@ -143,6 +144,42 @@ export async function validateAdminCredentials(username: string, inputPass: stri
   } catch (error) {
     console.error("validateAdminCredentials error:", error)
     return false
+  }
+}
+
+/**
+ * Fetch full account details including role and password
+ */
+export async function getUserAccountDetails(username: string): Promise<{ username: string; role: string; password?: string } | null> {
+  try {
+    const cleanUser = username.trim().toLowerCase()
+    const { data: dbAccount } = await supabase
+      .from("admin_accounts")
+      .select("username, password, role")
+      .eq("username", cleanUser)
+      .maybeSingle()
+
+    if (dbAccount) {
+      return {
+        username: dbAccount.username,
+        password: dbAccount.password,
+        role: dbAccount.role || (cleanUser === "karyawan" ? "KARYAWAN" : "ADMIN"),
+      }
+    }
+
+    if (cleanUser === "karyawan") {
+      return { username: "karyawan", password: "PerkaraKopi", role: "KARYAWAN" }
+    }
+
+    const pass = await getAdminPassword(cleanUser)
+    if (pass) {
+      return { username: cleanUser, password: pass, role: "ADMIN" }
+    }
+
+    return null
+  } catch (e) {
+    console.error("getUserAccountDetails error:", e)
+    return null
   }
 }
 

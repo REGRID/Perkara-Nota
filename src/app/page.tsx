@@ -567,6 +567,16 @@ export default function HomePage() {
               </button>
             </div>
 
+            {/* Active Account Identity Badge */}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-slate-200">
+              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>
+                {adminUser.toLowerCase() === "karyawan"
+                  ? `Karyawan (${typeof window !== "undefined" ? localStorage.getItem("nota_staff_name") || "Staf" : "Staf"})`
+                  : `Admin (${adminUser.toUpperCase()})`}
+              </span>
+            </div>
+
             {/* Settings Gear Icon Button */}
             <button
               type="button"

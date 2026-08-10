@@ -11,7 +11,8 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<"password" | "info">("password")
+  const isKaryawan = currentAdminUser.trim().toLowerCase() === "karyawan"
+  const [activeTab, setActiveTab] = useState<"password" | "info">(isKaryawan ? "info" : "password")
 
   // Change Password State
   const [oldPassword, setOldPassword] = useState("")
@@ -29,6 +30,11 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     setStatusMessage(null)
+
+    if (isKaryawan) {
+      setStatusMessage({ type: "error", text: "Akses Ditolak: Role Karyawan tidak memiliki izin untuk mengubah password." })
+      return
+    }
 
     if (!oldPassword || !newPassword) {
       setStatusMessage({ type: "error", text: "Password lama dan password baru wajib diisi." })
@@ -109,15 +115,17 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
 
         {/* Tab Selection */}
         <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs font-bold">
-          <button
-            type="button"
-            onClick={() => setActiveTab("password")}
-            className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-              activeTab === "password" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            <KeyRound className="w-3.5 h-3.5 text-emerald-600" /> Ganti Password
-          </button>
+          {!isKaryawan && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("password")}
+              className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+                activeTab === "password" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <KeyRound className="w-3.5 h-3.5 text-emerald-600" /> Ganti Password
+            </button>
+          )}
 
           <button
             type="button"
@@ -130,8 +138,8 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
           </button>
         </div>
 
-        {/* Tab Content 1: Ganti Password */}
-        {activeTab === "password" && (
+        {/* Tab Content 1: Ganti Password (Admin Only) */}
+        {activeTab === "password" && !isKaryawan && (
           <form onSubmit={handleChangePassword} className="space-y-4 animate-in fade-in duration-150">
             {statusMessage && (
               <div
@@ -220,19 +228,31 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
           <div className="space-y-4 animate-in fade-in duration-150">
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2 text-xs">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-slate-500">ID Admin Aktif:</span>
+                <span className="font-semibold text-slate-500">ID Login:</span>
                 <span className="font-bold font-mono text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200">
                   {currentAdminUser}
                 </span>
               </div>
               <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
+                <span className="font-semibold text-slate-500">Role Akses:</span>
+                <span className="font-bold text-slate-800 uppercase font-mono">
+                  {isKaryawan ? "KARYAWAN" : "ADMIN"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
                 <span className="font-semibold text-slate-500">Mode Sistem:</span>
-                <span className="font-bold text-slate-800">Dual-Admin Approval</span>
+                <span className="font-bold text-slate-800">
+                  {isKaryawan ? "Input Nota & Talangan Staf" : "Dual-Admin Approval"}
+                </span>
               </div>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-emerald-800 text-xs leading-relaxed font-medium">
-              🔑 Password yang diganti hanya berlaku untuk ID <strong>{currentAdminUser}</strong> dan akan langsung tersimpan di sistem.
+            <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-amber-900 text-xs leading-relaxed font-medium">
+              {isKaryawan ? (
+                <>🔒 Fitur penggantian password dan persetujuan verifikasi <strong>dikhususkan untuk Admin</strong>.</>
+              ) : (
+                <>🔑 Password yang diganti hanya berlaku untuk ID <strong>{currentAdminUser}</strong> dan akan langsung tersimpan di sistem.</>
+              )}
             </div>
           </div>
         )}
@@ -246,9 +266,9 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
               onLogout()
             }}
             className="px-4 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-600 font-extrabold text-xs border border-red-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
-            title="Keluar dari sesi admin saat ini"
+            title="Keluar dari sesi saat ini"
           >
-            <LogOut className="w-4 h-4" /> Keluar Admin
+            <LogOut className="w-4 h-4 -scale-x-100" /> Log out
           </button>
 
           <button

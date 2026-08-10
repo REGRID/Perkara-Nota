@@ -10,15 +10,23 @@ interface AdminLoginScreenProps {
 export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  const [staffName, setStaffName] = useState("Reza")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  const isKaryawanRole = username.trim().toLowerCase() === "karyawan"
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!username.trim() || !password.trim()) {
       setErrorMessage("ID dan Password harus diisi.")
+      return
+    }
+
+    if (isKaryawanRole && !staffName) {
+      setErrorMessage("Wajib memilih 'Siapa yang sedang login' untuk akun Karyawan.")
       return
     }
 
@@ -32,6 +40,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
         body: JSON.stringify({
           username: username.trim(),
           password: password.trim(),
+          staffName: isKaryawanRole ? staffName : "",
         }),
       })
 
@@ -41,10 +50,16 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
         throw new Error(data.error || "ID atau Password salah.")
       }
 
-      // Save token in localStorage for backup PWA authorization header
+      // Save token & user metadata in localStorage for backup PWA authorization header
       if (data.token) {
         localStorage.setItem("nota_admin_token", data.token)
         localStorage.setItem("nota_admin_user", data.user?.username || "admin")
+        localStorage.setItem("nota_admin_role", data.user?.role || "ADMIN")
+        if (data.user?.staffName) {
+          localStorage.setItem("nota_staff_name", data.user.staffName)
+        } else {
+          localStorage.removeItem("nota_staff_name")
+        }
       }
 
       onLoginSuccess(data.token, data.user?.username || "admin")
@@ -98,12 +113,34 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Masukkan ID..."
+                  placeholder="Masukkan ID"
                   autoComplete="username"
                   className="w-full bg-slate-50 border border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-2xl px-4 py-3.5 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition-all outline-none"
                 />
               </div>
             </div>
+
+            {/* Conditional Dropdown: Siapa yang login (Only for karyawan role) */}
+            {isKaryawanRole && (
+              <div className="space-y-2 animate-in fade-in duration-200">
+                <label className="text-xs font-black text-amber-900 bg-amber-100/80 px-2.5 py-1 rounded-lg flex items-center gap-1.5 w-fit border border-amber-200">
+                  <User className="w-3.5 h-3.5 text-amber-700" /> Siapa yang sedang login? <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={staffName}
+                    onChange={(e) => setStaffName(e.target.value)}
+                    className="w-full appearance-none bg-amber-50 border border-amber-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 rounded-2xl px-4 py-3.5 text-sm font-black text-slate-900 cursor-pointer transition-all outline-none"
+                  >
+                    <option value="Reza">Reza</option>
+                    <option value="Ummu">Ummu</option>
+                    <option value="Cheisa">Cheisa</option>
+                    <option value="Novi">Novi</option>
+                    <option value="Titis">Titis</option>
+                  </select>
+                </div>
+              </div>
+            )}
 
             {/* Input Password */}
             <div className="space-y-2">
@@ -116,7 +153,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Masukkan Password..."
+                  placeholder="Masukkan Password"
                   autoComplete="current-password"
                   className="w-full bg-slate-50 border border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-2xl pl-4 pr-11 py-3.5 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition-all outline-none"
                 />

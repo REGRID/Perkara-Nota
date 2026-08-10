@@ -307,10 +307,31 @@ export function VerificationSplitScreen({
   const [isSaving, setIsSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState("")
 
+  const isKaryawanRole = typeof window !== "undefined"
+    ? localStorage.getItem("nota_admin_role") === "KARYAWAN" || localStorage.getItem("nota_admin_user") === "karyawan"
+    : false
+
+  const activeStaffName = typeof window !== "undefined"
+    ? localStorage.getItem("nota_staff_name") || "Reza"
+    : "Reza"
+
+  const availablePaymentMethods = isKaryawanRole
+    ? ["Cash", "Transfer Bank", "QRIS", "Talangan Karyawan"]
+    : PAYMENT_METHODS
+
   const handlePaymentMethodSelect = (selectedMethod: string) => {
     setPaymentMethod(selectedMethod)
-    if (selectedMethod === "Dana Pribadi Owner" || selectedMethod === "Talangan Karyawan") {
+    if (selectedMethod === "Dana Pribadi Owner") {
       setPaymentStatus("Belum Direimburse")
+      if (paidByPerson !== "Rama" && paidByPerson !== "Refo") {
+        setPaidByPerson("Rama")
+      }
+    } else if (selectedMethod === "Talangan Karyawan") {
+      setPaymentStatus("Belum Direimburse")
+      const staffList = ["Reza", "Ummu", "Cheisa", "Novi", "Titis"]
+      if (!staffList.includes(paidByPerson)) {
+        setPaidByPerson(activeStaffName)
+      }
     } else if (selectedMethod === "Hutang Supplier") {
       setPaymentStatus("Tempo (Hutang Supplier)")
       setPaidByPerson("")
@@ -703,7 +724,7 @@ export function VerificationSplitScreen({
                     onChange={(e) => handlePaymentMethodSelect(e.target.value)}
                     className="w-full appearance-none pl-3.5 pr-9 py-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 text-sm font-semibold text-slate-900 bg-white cursor-pointer transition-all"
                   >
-                    {PAYMENT_METHODS.map((method) => (
+                    {availablePaymentMethods.map((method) => (
                       <option key={method} value={method}>
                         {method}
                       </option>
@@ -720,13 +741,35 @@ export function VerificationSplitScreen({
                     <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
                       <User className="w-3.5 h-3.5 text-emerald-600" /> Penanggung Jawab / Talangan
                     </label>
-                    <input
-                      type="text"
-                      placeholder="Nama Owner / Karyawan (contoh: Pak Budi / Siska)"
-                      value={paidByPerson}
-                      onChange={(e) => setPaidByPerson(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 text-sm text-slate-900 font-semibold transition-all bg-white"
-                    />
+
+                    {paymentMethod === "Dana Pribadi Owner" ? (
+                      <div className="relative">
+                        <select
+                          value={paidByPerson === "Refo" || paidByPerson === "refo" ? "Refo" : "Rama"}
+                          onChange={(e) => setPaidByPerson(e.target.value)}
+                          className="w-full appearance-none pl-3.5 pr-9 py-2.5 rounded-xl border border-emerald-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 text-sm font-bold text-slate-900 bg-emerald-50/50 cursor-pointer transition-all"
+                        >
+                          <option value="Rama">Rama (Owner)</option>
+                          <option value="Refo">Refo (Owner)</option>
+                        </select>
+                        <ChevronDown className="w-4 h-4 text-emerald-600 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <select
+                          value={paidByPerson || activeStaffName}
+                          onChange={(e) => setPaidByPerson(e.target.value)}
+                          className="w-full appearance-none pl-3.5 pr-9 py-2.5 rounded-xl border border-amber-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 text-sm font-bold text-slate-900 bg-amber-50/50 cursor-pointer transition-all"
+                        >
+                          <option value="Reza">Reza</option>
+                          <option value="Ummu">Ummu</option>
+                          <option value="Cheisa">Cheisa</option>
+                          <option value="Novi">Novi</option>
+                          <option value="Titis">Titis</option>
+                        </select>
+                        <ChevronDown className="w-4 h-4 text-amber-600 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-1.5 animate-in fade-in duration-200">

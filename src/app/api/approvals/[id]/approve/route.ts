@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
-import { getAdminUserFromRequest } from "@/lib/authHelper"
+import { getAdminUserFromRequest, getAdminRoleFromRequest } from "@/lib/authHelper"
 import { compressBase64Image } from "@/lib/imageCompressor"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -13,6 +13,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const approvingAdmin = getAdminUserFromRequest(req)
+    const userRole = getAdminRoleFromRequest(req)
+
+    if (userRole === "KARYAWAN") {
+      return NextResponse.json({
+        error: "Akses Ditolak: Role Karyawan tidak diizinkan memverifikasi/menyetujui permintaan. Persetujuan wajib dilakukan oleh Admin (Rama / Refo).",
+      }, { status: 403 })
+    }
 
     // Fetch approval request safely with maybeSingle to avoid coercion error
     const { data: pendingApproval, error: findErr } = await supabase
@@ -65,6 +72,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .in("id", payload.ids)
 
       if (bulkErr) console.warn("Bulk delete receipts execution notice:", bulkErr)
+    } else if (actionType === "BULK_SETTLE" && payload.ids && Array.isArray(payload.ids)) {
+      const { error: bulkSetErr } = await supabase
+        .from("receipts")
+        .update({
+          paymentStatus: "Lunas",
+          updatedAt: new Date().toISOString(),
+        })
+        .in("id", payload.ids)
+
+      if (bulkSetErr) console.warn("Bulk settle receipts execution notice:", bulkSetErr)
     } else if (actionType === "SETTLE" && pendingApproval.receiptId) {
       const { error: setErr } = await supabase
         .from("receipts")
@@ -142,6 +159,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       console.error("Update Approval Status Error:", updateErr)
       throw new Error(updateErr.message)
     }
+
+    // Insert notification to requesting admin
+    const requester = pendingApproval.requestedBy
+    await supabase.from("notifications").insert({
+      recipient: requester.toLowerCase(),
+      sender: approvingAdmin,
+      type: "APPROVE",
+      title: "Permintaan Diverifikasi & Disetujui ✅",
+      message: `Admin ${approvingAdmin} telah memverifikasi & menyetujui permintaan ${pendingApproval.actionType} Anda.`,
+      approvalId: cleanId,
+      isRead: false,
+    })
 
     return NextResponse.json({
       success: true,
