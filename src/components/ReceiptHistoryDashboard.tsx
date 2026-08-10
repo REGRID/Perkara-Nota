@@ -1453,29 +1453,25 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             print-color-adjust: exact !important;
           }
 
-          /* 1. Collapse all non-printable main page containers to zero height */
-          header,
-          main,
-          nav,
-          footer,
+          /* Hide controls */
           .no-print {
             display: none !important;
           }
 
-          html, body {
-            width: 100% !important;
-            height: auto !important;
-            min-height: 100% !important;
-            overflow: visible !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white !important;
-            color: black !important;
+          /* Hide page elements visually without destroying DOM tree */
+          body * {
+            visibility: hidden !important;
           }
 
-          /* 2. Position statement print modal overlay at absolute top-left (0,0) of Page 1 */
-          #statement-print-modal-overlay {
-            position: absolute !important;
+          /* Make ONLY statement document visible */
+          #printable-rekening-koran,
+          #printable-rekening-koran * {
+            visibility: visible !important;
+          }
+
+          /* Position statement fixed at (0,0) of printed page */
+          #printable-rekening-koran {
+            position: fixed !important;
             left: 0 !important;
             top: 0 !important;
             width: 100% !important;
@@ -1483,39 +1479,11 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
-            box-shadow: none !important;
-            border: none !important;
-            overflow: visible !important;
-            display: block !important;
-            backdrop-filter: none !important;
-          }
-
-          #statement-print-modal-overlay > div {
-            max-height: none !important;
-            height: auto !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            border: none !important;
-            box-shadow: none !important;
-            border-radius: 0 !important;
-            overflow: visible !important;
-            display: block !important;
-            background: white !important;
-          }
-
-          #printable-rekening-koran {
-            position: relative !important;
-            width: 100% !important;
-            height: auto !important;
-            max-height: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white !important;
             color: black !important;
             box-shadow: none !important;
             border: none !important;
             overflow: visible !important;
-            display: block !important;
+            z-index: 9999999 !important;
           }
 
           table {
