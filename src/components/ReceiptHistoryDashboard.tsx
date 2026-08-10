@@ -1304,12 +1304,12 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
   return (
     <div className="w-full space-y-5 pb-12 transition-all duration-300">
-      {/* GLOBAL PRINT STYLES FOR AUTHENTIC SINGLE-PAGE A4 PDF STATEMENT */}
+      {/* GLOBAL PRINT STYLES FOR MULTI-PAGE A4 PDF STATEMENT */}
       <style jsx global>{`
         @media print {
           @page {
             size: A4 portrait;
-            margin: 8mm 10mm;
+            margin: 10mm 10mm 10mm 10mm;
           }
 
           * {
@@ -1319,28 +1319,73 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
           html, body {
             width: 100% !important;
-            max-height: 100vh !important;
-            overflow: hidden !important;
+            height: auto !important;
+            min-height: 100% !important;
+            overflow: visible !important;
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
             color: black !important;
           }
 
-          /* Hide all non-printable controls */
+          /* Hide all non-printable controls and modal overlays */
           .no-print {
             display: none !important;
           }
 
-          /* Hide everything visually */
-          body * {
-            visibility: hidden !important;
+          /* Reset backdrop/overlay container during print */
+          #statement-print-modal-overlay {
+            position: static !important;
+            inset: auto !important;
+            background: transparent !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+            display: block !important;
+            backdrop-filter: none !important;
           }
 
-          /* Make ONLY printable content and its children visible */
-          #printable-rekening-koran,
-          #printable-rekening-koran * {
-            visibility: visible !important;
+          #statement-print-modal-overlay > div {
+            max-height: none !important;
+            height: auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            overflow: visible !important;
+            display: block !important;
+            background: white !important;
+          }
+
+          /* Printable document body */
+          #printable-rekening-koran {
+            position: static !important;
+            width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            color: black !important;
+            box-shadow: none !important;
+            border: none !important;
+            overflow: visible !important;
+            display: block !important;
+          }
+
+          table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            page-break-inside: auto !important;
+          }
+
+          thead {
+            display: table-header-group !important;
+          }
+
+          tbody {
+            display: table-row-group !important;
           }
 
           tr {
@@ -1348,22 +1393,9 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             break-inside: avoid !important;
           }
 
-          /* Position printable document at absolute top-left (0,0) fitting within 1 A4 page */
-          #printable-rekening-koran {
-            position: fixed !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            height: auto !important;
-            max-height: 100vh !important;
-            margin: 0 !important;
-            padding: 6mm 8mm !important;
-            background: white !important;
-            color: black !important;
-            box-shadow: none !important;
-            border: none !important;
-            overflow: hidden !important;
-            z-index: 999999 !important;
+          .avoid-break-total {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
         }
       `}</style>
@@ -2522,7 +2554,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
               </div>
 
               {/* Total Summary Footer Box */}
-              <div className="p-4 rounded-2xl bg-slate-900 text-white flex items-center justify-between shadow-xs">
+              <div className="p-4 rounded-2xl bg-slate-900 text-white flex items-center justify-between shadow-xs avoid-break-total">
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
                     Total Akumulasi Pengeluaran
@@ -2536,9 +2568,9 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 </span>
               </div>
 
-              {/* Footer Page Number */}
-              <div className="text-center pt-4 text-[11px] font-medium text-slate-600">
-                Page 1 of 1
+              {/* Footer Statement Note */}
+              <div className="text-center pt-3 pb-1 text-[10px] font-semibold text-slate-500 italic">
+                *** Dokumen Laporan Rekapitulasi Pembukuan Resmi — Perkara Kopi ***
               </div>
             </div>
 
