@@ -308,34 +308,40 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   const [paymentProofImage, setPaymentProofImage] = useState<string | null>(null)
   const [isSubmittingSettle, setIsSubmittingSettle] = useState<boolean>(false)
 
-  // Handle Settle Receipt (Lunasi Nota)
-  const handleSettleReceipt = async (receiptToSettle: ReceiptData) => {
-    try {
-      const res = await fetch(`/api/receipts/${receiptToSettle.id}`, {
-        method: "PUT",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          ...receiptToSettle,
-          paymentStatus: "Lunas",
-        }),
-      })
+  // Unified Settle Flow Trigger (Single or Checkmarked Receipts with mandatory Payment Proof Upload)
+  const triggerSettleFlow = (clickedReceipt?: ReceiptData) => {
+    // If there are checkmarked receipts in the list, settle all checkmarked receipts!
+    if (selectedReceiptIds.length > 0) {
+      const selectedObjList = allReceipts.filter(
+        (r) => selectedReceiptIds.includes(r.id) && !isReceiptSettled(r.paymentStatus)
+      )
 
-      if (res.ok) {
-        setAllReceipts((prev) =>
-          prev.map((r) =>
-            r.id === receiptToSettle.id ? { ...r, paymentStatus: "Lunas" } : r
-          )
-        )
-        if (selectedReceipt && selectedReceipt.id === receiptToSettle.id) {
-          setSelectedReceipt((prev) =>
-            prev ? { ...prev, paymentStatus: "Lunas" } : null
-          )
-        }
-      } else {
-        alert("Gagal memperbarui status pelunasan nota.")
+      if (selectedObjList.length === 0) {
+        alert("Nota yang Anda pilih sudah berstatus Lunas.")
+        return
       }
-    } catch (err) {
-      alert("Gagal memperbarui status pelunasan nota.")
+
+      setSettleTargetTitle(`Pelunasan ${selectedObjList.length} Nota Terpilih`)
+      setSettleTargetPerson("")
+      setSettleTargetReceipts(selectedObjList)
+      setPaymentProofImage(null)
+      setShowSettleModal(true)
+      return
+    }
+
+    // If no receipts are checkmarked, target the single clicked receipt!
+    if (clickedReceipt) {
+      if (isReceiptSettled(clickedReceipt.paymentStatus)) {
+        alert("Nota ini sudah berstatus Lunas.")
+        return
+      }
+
+      setSettleTargetTitle(`Pelunasan Nota: ${clickedReceipt.merchantName}`)
+      setSettleTargetPerson("")
+      setSettleTargetReceipts([clickedReceipt])
+      setPaymentProofImage(null)
+      setShowSettleModal(true)
+      return
     }
   }
 
@@ -731,6 +737,19 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       setSelectedReceiptIds([])
     } else {
       setSelectedReceiptIds(paginatedReceipts.map((r) => r.id))
+    }
+  }
+
+  const isAllFilteredSelected = useMemo(() => {
+    if (filteredReceipts.length === 0) return false
+    return filteredReceipts.every((r) => selectedReceiptIds.includes(r.id))
+  }, [filteredReceipts, selectedReceiptIds])
+
+  const toggleSelectAllFiltered = () => {
+    if (isAllFilteredSelected) {
+      setSelectedReceiptIds([])
+    } else {
+      setSelectedReceiptIds(filteredReceipts.map((r) => r.id))
     }
   }
 
@@ -2130,6 +2149,28 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 {selectedReceiptIds.length} Dipilih
               </span>
             )}
+
+            {/* Quick Select All Button (Visible on all devices for fast 1-tap select) */}
+            {!isInitialLoading && filteredReceipts.length > 0 && (
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                  isAllSelected
+                    ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50 active:bg-slate-100"
+                }`}
+                title="Pilih atau batalkan pilih semua nota pada halaman ini"
+              >
+                {isAllSelected ? (
+                  <CheckSquare className="w-3.5 h-3.5 text-white" />
+                ) : (
+                  <Square className="w-3.5 h-3.5 text-slate-400" />
+                )}
+                <span>{isAllSelected ? "Batal Pilih Semua" : "Pilih Semua (Hal. Ini)"}</span>
+              </button>
+            )}
+
             {pendingApprovals.length > 0 && (
               <button
                 type="button"
@@ -2148,7 +2189,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             <div className="flex items-center gap-2 animate-in fade-in duration-150 flex-wrap">
               <button
                 type="button"
-                onClick={handleBulkSettle}
+                onClick={() => triggerSettleFlow()}
                 disabled={isBulkSettling || isBulkDeleting}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
                 title="Tandai Lunas untuk semua nota yang dicentang"
@@ -2177,6 +2218,33 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             </div>
           )}
         </div>
+
+        {/* MOBILE QUICK SELECTION CONTROL STRIP (VISIBLE ON HP & TABLET < lg) */}
+        {!isInitialLoading && filteredReceipts.length > 0 && (
+          <div className="flex lg:hidden items-center justify-between gap-2 px-3.5 py-2.5 bg-slate-100/90 rounded-xl border border-slate-200/90 text-xs text-slate-700 shadow-2xs">
+            <label className="flex items-center gap-2.5 cursor-pointer select-none font-bold">
+              <input
+                type="checkbox"
+                checked={isAllSelected}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer shrink-0"
+              />
+              <span className="text-slate-800 text-xs font-extrabold">
+                {isAllSelected ? "Batal Pilih Semua" : `Pilih Semua (${paginatedReceipts.length} Struk Halaman Ini)`}
+              </span>
+            </label>
+
+            {filteredReceipts.length > paginatedReceipts.length && (
+              <button
+                type="button"
+                onClick={toggleSelectAllFiltered}
+                className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0"
+              >
+                {isAllFilteredSelected ? "Batal Semua Filter" : `Pilih Semua (${filteredReceipts.length} Struk)`}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* STATIC TABLE HEADER BAR (FOR HORIZONTAL ROW COLUMN LANDMARKS) */}
         {!isInitialLoading && filteredReceipts.length > 0 && (
@@ -2273,16 +2341,21 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center text-xs">
                     {/* KOLOM 1: Checkbox & Tanggal */}
                     <div className="lg:col-span-2 flex items-center gap-2.5 min-w-0">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
+                      <label
+                        className="flex items-center gap-2 p-1 -m-1 rounded-lg hover:bg-slate-100/80 active:bg-slate-200/80 cursor-pointer select-none shrink-0"
                         onClick={(e) => e.stopPropagation()}
-                        onChange={() => toggleSelectRow(receipt.id)}
-                        className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer shrink-0"
-                      />
-                      <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/80 text-[11px] whitespace-nowrap">
-                        {formattedDateStr}
-                      </span>
+                        title="Centang untuk memilih nota ini"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectRow(receipt.id)}
+                          className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer shrink-0"
+                        />
+                        <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/80 text-[11px] whitespace-nowrap">
+                          {formattedDateStr}
+                        </span>
+                      </label>
                     </div>
 
                     {/* KOLOM 2: Identitas Toko & Category Pill & Pending Badge */}
@@ -2367,7 +2440,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                handleSettleReceipt(receipt)
+                                triggerSettleFlow(receipt)
                               }}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-emerald-700 text-white font-black text-[11px] transition-all shadow-2xs active:scale-95 shrink-0"
                               title="Tandai Nota Sudah Direimburse / Lunasi"
@@ -3249,7 +3322,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 {!isReceiptSettled(selectedReceipt.paymentStatus) && (
                   <button
                     type="button"
-                    onClick={() => handleSettleReceipt(selectedReceipt)}
+                    onClick={() => triggerSettleFlow(selectedReceipt)}
                     className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition-colors border border-emerald-500 shadow-xs"
                   >
                     <CheckCircle2 className="w-4 h-4" /> Tandai Sudah Direimburse / Lunasi
@@ -3727,10 +3800,33 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                               </div>
                             )}
 
-                            {reqItem.actionType === "SETTLE" && (
-                              <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-xs text-emerald-950 space-y-1">
-                                <span className="font-bold block">Usulan Pelunasan / Reimbursement Nota:</span>
-                                <p>Status Pembayaran akan diubah dari <strong>{targetReceipt?.paymentStatus || "Belum Direimburse"}</strong> menjadi <strong className="text-emerald-700">LUNAS</strong>.</p>
+                            {(reqItem.actionType === "SETTLE" || reqItem.actionType === "BULK_SETTLE") && (
+                              <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-xs text-emerald-950 space-y-2">
+                                <span className="font-bold block text-emerald-900">Usulan Pelunasan / Reimbursement Nota:</span>
+                                <p>Status Pembayaran akan diubah menjadi <strong className="text-emerald-700">LUNAS</strong>.</p>
+
+                                {payloadObj.proofImageUrl && (
+                                  <div className="pt-2 border-t border-emerald-200 space-y-1.5">
+                                    <span className="font-extrabold text-emerald-900 flex items-center gap-1 text-[11px]">
+                                      <UploadCloud className="w-3.5 h-3.5 text-emerald-700" />
+                                      Bukti Transfer / Pembayaran Kas:
+                                    </span>
+                                    <div
+                                      onClick={() => setLightboxImageUrl(payloadObj.proofImageUrl)}
+                                      className="relative max-h-48 overflow-hidden rounded-xl bg-slate-900 flex items-center justify-center cursor-zoom-in p-1 border border-emerald-300 group"
+                                    >
+                                      {/* eslint-disable-next-html-element */}
+                                      <img
+                                        src={payloadObj.proofImageUrl}
+                                        alt="Bukti Transfer"
+                                        className="max-h-44 object-contain rounded-lg shadow-md group-hover:opacity-90 transition-opacity"
+                                      />
+                                      <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-bold text-xs">
+                                        Klik Untuk Zoom Lightbox Bukti Transfer
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
 
@@ -4061,6 +4157,48 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 ))
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* FLOATING MOBILE BULK ACTIONS BAR (STICKY AT BOTTOM ON HP / MOBILE) */}
+      {selectedReceiptIds.length > 0 && (
+        <div className="fixed bottom-16 sm:bottom-6 left-3 right-3 sm:left-auto sm:right-6 z-40 bg-slate-900/95 backdrop-blur-md text-white p-3 rounded-2xl border border-slate-700 shadow-2xl flex items-center justify-between gap-2.5 animate-in slide-in-from-bottom duration-200 lg:hidden">
+          <span className="text-xs font-bold text-slate-200 whitespace-nowrap pl-1">
+            <span className="bg-emerald-500 text-slate-950 px-2 py-0.5 rounded-full font-black text-[11px] mr-1.5">
+              {selectedReceiptIds.length}
+            </span>
+            Nota Dipilih
+          </span>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => triggerSettleFlow()}
+              disabled={isBulkSettling || isBulkDeleting}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 active:bg-emerald-700 text-white font-extrabold text-xs shadow-xs disabled:opacity-50 cursor-pointer"
+            >
+              {isBulkSettling ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              Lunasi
+            </button>
+
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting || isBulkSettling}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-red-600 active:bg-red-700 text-white font-extrabold text-xs shadow-xs disabled:opacity-50 cursor-pointer"
+            >
+              {isBulkDeleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              Hapus
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedReceiptIds([])}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
+            >
+              Batal
+            </button>
           </div>
         </div>
       )}
