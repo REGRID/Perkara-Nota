@@ -54,6 +54,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       throw new Error(error.message)
     }
 
+    // Insert Notification for other admin
+    try {
+      const recipientAdmin = adminUser.toLowerCase().includes("rama") ? "refo" : "rama"
+      await supabase.from("notifications").insert({
+        recipient: recipientAdmin,
+        sender: adminUser,
+        type: "REQUEST",
+        title: "✏️ Permintaan Edit Nota",
+        message: `Admin ${adminUser} mengajukan perubahan data nota "${body.merchantName || 'Nota'}".`,
+        approvalId: approval.id,
+        isRead: false,
+      })
+    } catch (nErr) {
+      console.warn("Edit request notification insert notice:", nErr)
+    }
+
     return NextResponse.json({
       pendingApproval: true,
       message: `Permintaan edit nota berhasil diajukan oleh ${adminUser}. Menunggu verifikasi dari admin lain.`,
@@ -85,6 +101,22 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     if (error) {
       throw new Error(error.message)
+    }
+
+    // Insert Notification for other admin
+    try {
+      const recipientAdmin = adminUser.toLowerCase().includes("rama") ? "refo" : "rama"
+      await supabase.from("notifications").insert({
+        recipient: recipientAdmin,
+        sender: adminUser,
+        type: "REQUEST",
+        title: "🗑️ Permintaan Hapus Nota",
+        message: `Admin ${adminUser} mengajukan penghapusan nota.`,
+        approvalId: approval.id,
+        isRead: false,
+      })
+    } catch (nErr) {
+      console.warn("Delete request notification insert notice:", nErr)
     }
 
     return NextResponse.json({

@@ -301,7 +301,7 @@ export function VerificationSplitScreen({
   const [items, setItems] = useState<ParsedItem[]>(initialResult.items || [])
   const [taxAmount, setTaxAmount] = useState<number | "">(initialResult.taxAmount ?? 0)
   const [paymentMethod, setPaymentMethod] = useState<string>(existingPaymentMethod || "Cash")
-  const [paymentStatus, setPaymentStatus] = useState<string>(existingPaymentStatus || "Lunas")
+  const [paymentStatus, setPaymentStatus] = useState<string>(existingPaymentStatus || "Sudah Dilunasi")
   const [paidByPerson, setPaidByPerson] = useState<string>(initialPaidBy)
   const [note, setNote] = useState(initialCleanNote)
   const [isSaving, setIsSaving] = useState(false)
@@ -336,7 +336,7 @@ export function VerificationSplitScreen({
       setPaymentStatus("Tempo (Hutang Supplier)")
       setPaidByPerson("")
     } else {
-      setPaymentStatus("Lunas")
+      setPaymentStatus("Sudah Dilunasi")
       setPaidByPerson("")
     }
   }
@@ -783,7 +783,7 @@ export function VerificationSplitScreen({
                         className="w-full appearance-none pl-3.5 pr-9 py-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 text-sm font-semibold text-slate-900 bg-white cursor-pointer transition-all"
                       >
                         <option value="Belum Direimburse">Belum Direimburse</option>
-                        <option value="Lunas">Sudah Lunas Reimburse</option>
+                        <option value="Sudah Dilunasi">Sudah Dilunasi / Reimburse</option>
                       </select>
                       <ChevronDown className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                     </div>
@@ -804,7 +804,7 @@ export function VerificationSplitScreen({
                       className="w-full appearance-none pl-3.5 pr-9 py-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 text-sm font-semibold text-slate-900 bg-white cursor-pointer transition-all"
                     >
                       <option value="Tempo (Hutang Supplier)">Tempo (Belum Lunas)</option>
-                      <option value="Lunas">Sudah Lunas</option>
+                      <option value="Sudah Dilunasi">Sudah Dilunasi</option>
                     </select>
                     <ChevronDown className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   </div>

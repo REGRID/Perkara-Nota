@@ -7,12 +7,13 @@ export async function GET() {
     const hierarchy = await getOrSeedCategories()
     const allCategoryNames = hierarchy.map((h) => h.name)
 
-    const { data: customCatsData } = await supabase
-      .from("custom_categories")
-      .select("id, name, parentId, createdAt")
-      .order("createdAt", { ascending: true })
-
-    const customCats = customCatsData || []
+    const customCats: any[] = []
+    hierarchy.forEach((h) => {
+      customCats.push({ id: h.id, name: h.name, parentId: null })
+      h.subCategories.forEach((sub) => {
+        customCats.push({ id: sub.id, name: sub.name, parentId: h.id })
+      })
+    })
 
     return NextResponse.json({
       allCategories: allCategoryNames,

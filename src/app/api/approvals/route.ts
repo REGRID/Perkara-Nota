@@ -6,6 +6,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const status = searchParams.get("status") || "PENDING"
+    const receiptId = searchParams.get("receiptId") || ""
 
     let query = supabase
       .from("pending_approvals")
@@ -22,7 +23,23 @@ export async function GET(req: NextRequest) {
       throw new Error(error.message)
     }
 
-    return NextResponse.json(approvals || [])
+    let result = approvals || []
+
+    if (receiptId) {
+      result = result.filter((app: any) => {
+        if (app.receiptId === receiptId) return true
+        if (app.payload) {
+          try {
+            const p = JSON.parse(app.payload)
+            if (p.id === receiptId) return true
+            if (p.ids && Array.isArray(p.ids) && p.ids.includes(receiptId)) return true
+          } catch (e) {}
+        }
+        return false
+      })
+    }
+
+    return NextResponse.json(result)
   } catch (error: any) {
     console.error("GET Approvals Error:", error)
     return NextResponse.json({ error: "Gagal mengambil daftar verifikasi" }, { status: 500 })
@@ -53,6 +70,22 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       throw new Error(error.message)
+    }
+
+    // Insert Notification for other admin
+    try {
+      const recipientAdmin = adminUser.toLowerCase().includes("rama") ? "refo" : "rama"
+      await supabase.from("notifications").insert({
+        recipient: recipientAdmin,
+        sender: adminUser,
+        type: "REQUEST",
+        title: `🔔 Permintaan Verifikasi (${actionType})`,
+        message: `Admin ${adminUser} mengajukan permintaan verifikasi ${actionType}.`,
+        approvalId: newApproval.id,
+        isRead: false,
+      })
+    } catch (nErr) {
+      console.warn("Approval POST notification insert notice:", nErr)
     }
 
     return NextResponse.json({

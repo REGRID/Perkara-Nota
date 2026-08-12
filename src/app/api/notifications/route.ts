@@ -5,7 +5,7 @@ import { getAdminUserFromRequest } from "@/lib/authHelper"
 export async function GET(req: NextRequest) {
   try {
     const adminUser = getAdminUserFromRequest(req)
-    const cleanUser = adminUser.trim().toLowerCase()
+    const cleanUser = (adminUser || "all").trim().toLowerCase() || "all"
 
     const { data: notifications, error } = await supabase
       .from("notifications")
@@ -34,13 +34,14 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const adminUser = getAdminUserFromRequest(req)
+    const cleanUser = (adminUser || "all").trim().toLowerCase() || "all"
     const { id, markAllRead } = await req.json()
 
     if (markAllRead) {
       await supabase
         .from("notifications")
         .update({ isRead: true })
-        .or(`recipient.eq.${adminUser.toLowerCase()},recipient.eq.all,recipient.eq.*`)
+        .or(`recipient.eq.${cleanUser},recipient.eq.all,recipient.eq.*`)
     } else if (id) {
       await supabase
         .from("notifications")

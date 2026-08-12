@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest, getAdminRoleFromRequest } from "@/lib/authHelper"
 import { compressBase64Image } from "@/lib/imageCompressor"
+import { invalidateReceiptsListCache } from "@/app/api/receipts/route"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -57,12 +58,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const actionType = pendingApproval.actionType
 
+    // Invalidate list cache so fresh updated data is returned immediately
+    invalidateReceiptsListCache()
+
     // Execute requested changes in database
-    if (actionType === "DELETE" && pendingApproval.receiptId) {
+    if (actionType === "DELETE" && (pendingApproval.receiptId || payload.id)) {
+      const targetId = pendingApproval.receiptId || payload.id
       const { error: delErr } = await supabase
         .from("receipts")
         .delete()
-        .eq("id", pendingApproval.receiptId)
+        .eq("id", targetId)
 
       if (delErr) console.warn("Delete receipt execution notice:", delErr)
     } else if (actionType === "BULK_DELETE" && payload.ids && Array.isArray(payload.ids)) {
@@ -72,27 +77,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .in("id", payload.ids)
 
       if (bulkErr) console.warn("Bulk delete receipts execution notice:", bulkErr)
-    } else if (actionType === "BULK_SETTLE" && payload.ids && Array.isArray(payload.ids)) {
-      const { error: bulkSetErr } = await supabase
-        .from("receipts")
-        .update({
-          paymentStatus: "Lunas",
-          updatedAt: new Date().toISOString(),
-        })
-        .in("id", payload.ids)
+    } else if (actionType === "BULK_SETTLE" || actionType === "SETTLE") {
+      const targetIds: string[] =
+        payload.ids && Array.isArray(payload.ids) && payload.ids.length > 0
+          ? payload.ids
+          : pendingApproval.receiptId
+          ? [pendingApproval.receiptId]
+          : payload.id
+          ? [payload.id]
+          : []
 
-      if (bulkSetErr) console.warn("Bulk settle receipts execution notice:", bulkSetErr)
-    } else if (actionType === "SETTLE" && pendingApproval.receiptId) {
-      const { error: setErr } = await supabase
-        .from("receipts")
-        .update({
-          paymentStatus: "Lunas",
-          updatedAt: new Date().toISOString(),
-        })
-        .eq("id", pendingApproval.receiptId)
+      if (targetIds.length > 0) {
+        const { error: setErr } = await supabase
+          .from("receipts")
+          .update({
+            paymentStatus: "Sudah Dilunasi",
+            updatedAt: new Date().toISOString(),
+          })
+          .in("id", targetIds)
 
-      if (setErr) console.warn("Settle receipt execution notice:", setErr)
-    } else if (actionType === "EDIT" && pendingApproval.receiptId) {
+        if (setErr) console.warn("Settle execution notice:", setErr)
+      }
+    } else if (actionType === "EDIT" && (pendingApproval.receiptId || payload.id)) {
+      const targetReceiptId = pendingApproval.receiptId || payload.id
       const { merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, items } = payload
       const compressedImageUrl = imageUrl ? await compressBase64Image(imageUrl) : null
 
@@ -100,9 +107,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       await supabase
         .from("receipt_items")
         .delete()
-        .eq("receiptId", pendingApproval.receiptId)
+        .eq("receiptId", targetReceiptId)
 
-      // Update parent receipt record
+      // Update parent receipt record (preserve exact paymentStatus passed in edit payload)
       const updateFields: any = {
         merchantName: merchantName || "Nota / Toko",
         date: date,
@@ -122,14 +129,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const { error: editErr } = await supabase
         .from("receipts")
         .update(updateFields)
-        .eq("id", pendingApproval.receiptId)
+        .eq("id", targetReceiptId)
 
       if (editErr) console.warn("Edit receipt execution notice:", editErr)
 
       // Re-create items
       if (items && Array.isArray(items) && items.length > 0) {
         const itemsToCreate = items.map((it: any) => ({
-          receiptId: pendingApproval.receiptId,
+          receiptId: targetReceiptId,
           name: it.name || "Item",
           category: it.category || "Lain-lain",
           subCategory: it.subCategory || "Umum",

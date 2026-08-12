@@ -195,7 +195,7 @@ export async function POST(req: NextRequest) {
         taxAmount: Number(taxAmount) || 0,
         totalAmount: Number(totalAmount) || 0,
         paymentMethod: paymentMethod || "Cash",
-        paymentStatus: paymentStatus || "Lunas",
+        paymentStatus: !paymentStatus || paymentStatus === "Lunas" ? "Sudah Dilunasi" : paymentStatus,
         note: cleanedNote,
         createdAt: nowIso,
         updatedAt: nowIso,
@@ -231,6 +231,23 @@ export async function POST(req: NextRequest) {
       console.warn("Background self-learning error:", err)
     )
 
+    // Insert Notification for newly added receipt
+    try {
+      const uploaderName = staffName ? `${staffName} (Karyawan)` : (getAdminUserFromRequest(req) || "Admin")
+      const recipientAdmin = (uploaderName || "").toLowerCase().includes("rama") ? "refo" : "rama"
+
+      await supabase.from("notifications").insert({
+        recipient: recipientAdmin,
+        sender: uploaderName,
+        type: "NEW_RECEIPT",
+        title: "🧾 Nota Baru Masuk",
+        message: `${uploaderName} telah menyimpan nota baru dari "${merchantName || 'Nota / Toko'}" sebesar Rp ${(Number(totalAmount) || 0).toLocaleString("id-ID")}.`,
+        isRead: false,
+      })
+    } catch (nErr) {
+      console.warn("New receipt notification insert notice:", nErr)
+    }
+
     return NextResponse.json(fullReceipt, { status: 201 })
   } catch (error: any) {
     console.error("POST Receipt Error:", error)
@@ -263,6 +280,22 @@ export async function DELETE(req: NextRequest) {
       throw new Error(error.message)
     }
 
+    // Insert Notification for other admin
+    try {
+      const recipientAdmin = adminUser.toLowerCase().includes("rama") ? "refo" : "rama"
+      await supabase.from("notifications").insert({
+        recipient: recipientAdmin,
+        sender: adminUser,
+        type: "REQUEST",
+        title: `🗑️ Permintaan Hapus Massal (${ids.length} Nota)`,
+        message: `Admin ${adminUser} mengajukan penghapusan massal untuk ${ids.length} nota.`,
+        approvalId: approval.id,
+        isRead: false,
+      })
+    } catch (nErr) {
+      console.warn("Bulk delete notification insert notice:", nErr)
+    }
+
     return NextResponse.json({
       pendingApproval: true,
       message: `Permintaan hapus massal (${ids.length} nota) berhasil diajukan oleh ${adminUser}. Menunggu verifikasi dari admin lain.`,
@@ -284,7 +317,7 @@ export async function PATCH(req: NextRequest) {
 
     invalidateReceiptsListCache()
 
-    const statusToSet = paymentStatus || "Lunas"
+    const statusToSet = !paymentStatus || paymentStatus === "Lunas" ? "Sudah Dilunasi" : paymentStatus
     const compressedProof = proofImageUrl ? await compressBase64Image(proofImageUrl) : null
 
     const payloadObj = {

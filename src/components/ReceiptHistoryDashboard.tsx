@@ -182,21 +182,39 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   // Selected Detail Modal State
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptData | null>(null)
   const [isLoadingDetailImage, setIsLoadingDetailImage] = useState(false)
+  const [receiptHistoryLogs, setReceiptHistoryLogs] = useState<any[]>([])
+  const [isLoadingHistoryLogs, setIsLoadingHistoryLogs] = useState(false)
 
-  // Lazy-load original receipt photo when receipt detail modal opens
+  // Lazy-load original receipt photo and fetch approval/edit history logs when detail modal opens
   useEffect(() => {
-    if (selectedReceipt && selectedReceipt.id && !selectedReceipt.imageUrl) {
-      setIsLoadingDetailImage(true)
-      fetch(`/api/receipts/${selectedReceipt.id}`)
-        .then((res) => (res.ok ? res.json() : null))
+    if (selectedReceipt && selectedReceipt.id) {
+      if (!selectedReceipt.imageUrl) {
+        setIsLoadingDetailImage(true)
+        fetch(`/api/receipts/${selectedReceipt.id}`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (data && data.imageUrl) {
+              setSelectedReceipt((prev) => (prev && prev.id === selectedReceipt.id ? { ...prev, imageUrl: data.imageUrl } : prev))
+              setAllReceipts((prev) => prev.map((r) => (r.id === selectedReceipt.id ? { ...r, imageUrl: data.imageUrl } : r)))
+            }
+          })
+          .catch((e) => console.error("Gagal memuat foto nota detail:", e))
+          .finally(() => setIsLoadingDetailImage(false))
+      }
+
+      // Fetch Approval & Edit History Logs
+      setIsLoadingHistoryLogs(true)
+      fetch(`/api/approvals?status=ALL&receiptId=${selectedReceipt.id}`)
+        .then((res) => (res.ok ? res.json() : []))
         .then((data) => {
-          if (data && data.imageUrl) {
-            setSelectedReceipt((prev) => (prev && prev.id === selectedReceipt.id ? { ...prev, imageUrl: data.imageUrl } : prev))
-            setAllReceipts((prev) => prev.map((r) => (r.id === selectedReceipt.id ? { ...r, imageUrl: data.imageUrl } : r)))
+          if (Array.isArray(data)) {
+            setReceiptHistoryLogs(data)
           }
         })
-        .catch((e) => console.error("Gagal memuat foto nota detail:", e))
-        .finally(() => setIsLoadingDetailImage(false))
+        .catch((e) => console.error("Gagal memuat histori approval:", e))
+        .finally(() => setIsLoadingHistoryLogs(false))
+    } else {
+      setReceiptHistoryLogs([])
     }
   }, [selectedReceipt?.id])
 
@@ -317,7 +335,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       )
 
       if (selectedObjList.length === 0) {
-        alert("Nota yang Anda pilih sudah berstatus Lunas.")
+        alert("Nota yang Anda pilih sudah berstatus Sudah Dilunasi.")
         return
       }
 
@@ -332,7 +350,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     // If no receipts are checkmarked, target the single clicked receipt!
     if (clickedReceipt) {
       if (isReceiptSettled(clickedReceipt.paymentStatus)) {
-        alert("Nota ini sudah berstatus Lunas.")
+        alert("Nota ini sudah berstatus Sudah Dilunasi.")
         return
       }
 
@@ -541,7 +559,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
         headers: getAuthHeaders(),
         body: JSON.stringify({
           ids,
-          paymentStatus: "Lunas",
+          paymentStatus: "Sudah Dilunasi",
           proofImageUrl: paymentProofImage,
           personName: settleTargetPerson,
           totalAmount: totalAmt,
@@ -572,13 +590,28 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     fetchPendingApprovals()
     fetchNotifications()
 
-    // Polling every 10 seconds for real-time background sync
+    // Smart Polling: Only poll when document tab is active to save bandwidth & database connections
     const interval = setInterval(() => {
-      fetchPendingApprovals()
-      fetchNotifications()
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        fetchPendingApprovals()
+        fetchNotifications()
+      }
     }, 10000)
 
-    return () => clearInterval(interval)
+    // Instant Sync when tab becomes visible again
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchPendingApprovals()
+        fetchNotifications()
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, [])
 
   // Parent Category Tabs List strictly built from database hierarchy
@@ -663,7 +696,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       }
 
       // 5. Payment Status Filter
-      if (selectedStatusFilter === "Lunas") {
+      if (selectedStatusFilter === "Sudah Dilunasi") {
         if (!isReceiptSettled(r.paymentStatus)) return false
       } else if (selectedStatusFilter === "Belum Direimburse / Tempo") {
         if (isReceiptSettled(r.paymentStatus)) return false
@@ -2087,13 +2120,13 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 </button>
               )}
             </div>            <div className="flex items-center gap-1.5 overflow-x-auto">
-              {["Semua Status", "Lunas", "Belum Direimburse / Tempo"].map((statusOpt) => (
+              {["Semua Status", "Sudah Dilunasi", "Belum Direimburse / Tempo"].map((statusOpt) => (
                 <button
                   key={statusOpt}
                   type="button"
                   onClick={() => {
                     setSelectedStatusFilter(statusOpt)
-                    if (statusOpt === "Lunas") {
+                    if (statusOpt === "Sudah Dilunasi") {
                       setSelectedPersonFilter("Semua Penanggung Jawab")
                     }
                   }}
@@ -2108,8 +2141,8 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
               ))}
             </div>
 
-            {/* Sub-Status: Penanggung Jawab / Talangan (Only shown if NOT filtered by Lunas) */}
-            {selectedStatusFilter !== "Lunas" && availablePersonNames.length > 0 && (
+            {/* Sub-Status: Penanggung Jawab / Talangan (Only shown if NOT filtered by Sudah Dilunasi) */}
+            {selectedStatusFilter !== "Sudah Dilunasi" && availablePersonNames.length > 0 && (
               <div className="flex items-center gap-1.5 overflow-x-auto pt-1 bg-amber-50/60 p-2.5 rounded-2xl border border-amber-200/70 transition-all animate-in fade-in duration-150">
                 <span className="text-[11px] font-black text-amber-900 flex items-center gap-1 shrink-0 uppercase tracking-wider mr-1">
                   <User className="w-3.5 h-3.5 text-amber-600" /> SUB-STATUS (TALANGAN):
@@ -2182,6 +2215,22 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 <span>{pendingApprovals.length} Verifikasi Pending</span>
               </button>
             )}
+
+            {/* NOTIFICATION BELL BUTTON WITH UNREAD COUNTER BADGE */}
+            <button
+              type="button"
+              onClick={() => setShowNotificationsModal(true)}
+              className="relative inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer"
+              title="Buka Pusat Notifikasi Aktivitas Admin"
+            >
+              <Bell className="w-3.5 h-3.5 text-amber-400" />
+              <span>Notifikasi</span>
+              {unreadNotificationCount > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[18px] h-4 px-1 text-[10px] font-black text-slate-950 bg-amber-400 rounded-full animate-bounce">
+                  {unreadNotificationCount}
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Bulk Action Controls */}
@@ -2448,8 +2497,15 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                               <CheckCircle2 className="w-3.5 h-3.5" /> Lunasi
                             </button>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 font-bold text-[10px] border border-emerald-200 shrink-0">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Lunas
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] border shrink-0 ${
+                                receipt.paymentStatus === "Sudah Dilunasi"
+                                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                  : "bg-green-50 text-green-800 border-green-200"
+                              }`}
+                            >
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              {receipt.paymentStatus === "Sudah Dilunasi" ? "Sudah Dilunasi" : "Lunas"}
                             </span>
                           )}
 
@@ -3314,6 +3370,142 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                     <p>{selectedReceipt.note}</p>
                   </div>
                 )}
+
+                {/* BUKTI TRANSFER & HISTORI PENGEDITAN (DUAL-CONTROL AUDIT LOG) */}
+                <div className="pt-3 border-t border-slate-200 space-y-3">
+                  <h5 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    Bukti Transfer Pelunasan & Histori Approval
+                  </h5>
+
+                  {isLoadingHistoryLogs ? (
+                    <div className="p-3 bg-slate-50 rounded-xl text-center text-xs text-slate-500 flex items-center justify-center gap-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                      Memuat riwayat verifikasi & bukti pelunasan...
+                    </div>
+                  ) : receiptHistoryLogs.length === 0 ? (
+                    <div className="p-3 bg-slate-50 rounded-xl text-center text-xs text-slate-500 border border-slate-200/80">
+                      Belum ada catatan histori pengeditan atau pelunasan khusus pada nota ini.
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
+                      {receiptHistoryLogs.map((log: any) => {
+                        let payloadObj: any = {}
+                        try {
+                          payloadObj = JSON.parse(log.payload || "{}")
+                        } catch (e) {}
+
+                        const isApproved = log.status === "APPROVED"
+                        const isPending = log.status === "PENDING"
+                        const isRejected = log.status === "REJECTED"
+
+                        return (
+                          <div
+                            key={log.id}
+                            className={`p-3 rounded-2xl border text-xs space-y-2 transition-all ${
+                              isApproved
+                                ? "bg-emerald-50/50 border-emerald-200"
+                                : isPending
+                                ? "bg-amber-50/50 border-amber-200"
+                                : "bg-red-50/50 border-red-200"
+                            }`}
+                          >
+                            {/* Log Header Badge & Meta */}
+                            <div className="flex items-center justify-between flex-wrap gap-1">
+                              <span className="font-black text-slate-900 flex items-center gap-1">
+                                {log.actionType === "SETTLE" || log.actionType === "BULK_SETTLE" ? (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : (
+                                  <Edit className="w-3.5 h-3.5 text-blue-600" />
+                                )}
+                                {log.actionType === "SETTLE" || log.actionType === "BULK_SETTLE"
+                                  ? "PELUNASAN NOTA"
+                                  : log.actionType === "EDIT"
+                                  ? "PENGEDITAN DATA NOTA"
+                                  : log.actionType}
+                              </span>
+
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                  isApproved
+                                    ? "bg-emerald-600 text-white"
+                                    : isPending
+                                    ? "bg-amber-500 text-white animate-pulse"
+                                    : "bg-red-600 text-white"
+                                }`}
+                              >
+                                {isApproved
+                                  ? `Disetujui oleh ${log.approvedBy || "Admin"}`
+                                  : isPending
+                                  ? "Menunggu Approval Admin 2"
+                                  : "Ditolak"}
+                              </span>
+                            </div>
+
+                            {/* Sub Meta: Requested By & Date */}
+                            <div className="text-[11px] text-slate-600 flex items-center justify-between">
+                              <span>Diajukan oleh: <strong>{log.requestedBy}</strong></span>
+                              <span className="font-mono text-slate-400">
+                                {new Date(log.createdAt).toLocaleDateString("id-ID", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  year: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
+                            </div>
+
+                            {/* BUKTI TRANSFER IMAGE (IF AVAILABLE IN PAYLOAD) */}
+                            {payloadObj.proofImageUrl && (
+                              <div className="space-y-1 pt-1 border-t border-emerald-200/80">
+                                <span className="text-[10.5px] font-extrabold text-emerald-900 flex items-center gap-1">
+                                  <ImageIcon className="w-3.5 h-3.5 text-emerald-600" /> Bukti Foto Transfer / Pelunasan:
+                                </span>
+                                <div
+                                  onClick={() => setLightboxImageUrl(payloadObj.proofImageUrl)}
+                                  className="relative group rounded-xl overflow-hidden border border-emerald-300 max-w-[180px] bg-slate-900 cursor-pointer"
+                                >
+                                  {/* eslint-disable-next-html-element */}
+                                  <img
+                                    src={payloadObj.proofImageUrl}
+                                    alt="Bukti Transfer Pelunasan"
+                                    className="w-full h-24 object-cover group-hover:opacity-80 transition-opacity"
+                                  />
+                                  <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[10px] text-white font-extrabold">
+                                    <Maximize2 className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Zoom Foto
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* BEFORE & AFTER DETAILS FOR EDIT LOGS */}
+                            {log.actionType === "EDIT" && payloadObj && (
+                              <div className="bg-white/80 p-2.5 rounded-xl border border-slate-200 space-y-1 text-[11px]">
+                                <span className="font-bold text-slate-700 block text-[10.5px] uppercase tracking-wider">Histori Perubahan Data (Sebelum ➔ Sesudah):</span>
+                                {payloadObj.merchantName && payloadObj.merchantName !== selectedReceipt.merchantName && (
+                                  <p className="text-slate-600">
+                                    <strong>Toko:</strong> {selectedReceipt.merchantName} ➔ <span className="text-emerald-700 font-semibold">{payloadObj.merchantName}</span>
+                                  </p>
+                                )}
+                                {payloadObj.totalAmount && payloadObj.totalAmount !== selectedReceipt.totalAmount && (
+                                  <p className="text-slate-600 font-mono">
+                                    <strong>Total Netto:</strong> Rp {selectedReceipt.totalAmount.toLocaleString("id-ID")} ➔ <span className="text-emerald-700 font-bold">Rp {Number(payloadObj.totalAmount).toLocaleString("id-ID")}</span>
+                                  </p>
+                                )}
+                                {payloadObj.paymentStatus && payloadObj.paymentStatus !== selectedReceipt.paymentStatus && (
+                                  <p className="text-slate-600">
+                                    <strong>Status:</strong> {selectedReceipt.paymentStatus} ➔ <span className="text-emerald-700 font-semibold">{payloadObj.paymentStatus}</span>
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
