@@ -233,11 +233,17 @@ export async function POST(req: NextRequest) {
 
     // Insert Notification for newly added receipt
     try {
-      const uploaderName = staffName ? `${staffName} (Karyawan)` : (getAdminUserFromRequest(req) || "Admin")
-      const recipientAdmin = (uploaderName || "").toLowerCase().includes("rama") ? "refo" : "rama"
+      const isKaryawanUpload = Boolean(staffName) || getAdminRoleFromRequest(req) === "KARYAWAN"
+      const uploaderName = staffName
+        ? `${staffName} (Karyawan)`
+        : isKaryawanUpload
+        ? "Karyawan"
+        : getAdminUserFromRequest(req) || "Admin"
+
+      const recipient = isKaryawanUpload ? "all" : (uploaderName.toLowerCase().includes("rama") ? "refo" : "rama")
 
       await supabase.from("notifications").insert({
-        recipient: recipientAdmin,
+        recipient: recipient,
         sender: uploaderName,
         type: "NEW_RECEIPT",
         title: "Nota Baru Masuk",
