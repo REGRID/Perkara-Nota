@@ -137,6 +137,14 @@
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
 
+@utility pt-safe {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+
+@utility pt-safe-header {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 @utility mb-safe {
   margin-bottom: env(safe-area-inset-bottom);
 }

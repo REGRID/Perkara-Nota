@@ -71,7 +71,7 @@ export function AdminLoginScreen({ onLoginSuccess }: AdminLoginScreenProps) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col justify-center items-center p-4 relative overflow-hidden font-sans selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col justify-center items-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] relative overflow-hidden font-sans selection:bg-emerald-500 selection:text-white">
       {/* Ambient Glow Background Effect */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-10 right-10 w-72 h-72 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
