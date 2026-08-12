@@ -1,13 +1,14 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import { Settings, X, KeyRound, UserCheck, LogOut, Eye, EyeOff, ShieldCheck, CheckCircle2, AlertCircle, Loader2, Bell, Zap } from "lucide-react"
+import { Settings, X, KeyRound, UserCheck, LogOut, Eye, EyeOff, ShieldCheck, CheckCircle2, AlertCircle, Loader2, Bell, Zap, Lock, Key } from "lucide-react"
 import {
   getNotificationPermissionStatus,
   getNotificationSettings,
   saveNotificationSettings,
   requestNotificationPermission,
   sendNativeOSNotification,
+  testNativeOSNotification,
   NotificationSettings,
 } from "@/lib/pwaNotification"
 
@@ -188,15 +189,15 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
                     : "bg-amber-100 text-amber-800 border border-amber-200"
                 }`}>
                   {permState === "granted"
-                    ? "🟢 Aktif (Granted)"
+                    ? "Aktif (Granted)"
                     : permState === "denied"
-                    ? "🔴 Diblokir (Denied)"
-                    : "🟡 Belum Diizinkan"}
+                    ? "Diblokir (Denied)"
+                    : "Belum Diizinkan"}
                 </span>
               </div>
 
               <p className="text-[11.5px] text-slate-600 leading-relaxed">
-                Notifikasi sistem akan muncul sebagai pop-up banner di layar HP Android/iOS atau Windows bahkan saat aplikasi berjalan di latar belakang (background/minimized).
+                Notifikasi sistem akan muncul sebagai pop-up banner di layar HP Android/iOS atau Windows bahkan saat aplikasi berjalan di latar belakang.
               </p>
 
               <div className="flex items-center gap-2 pt-1 border-t border-slate-200/60 flex-wrap">
@@ -207,7 +208,7 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
                       const granted = await requestNotificationPermission()
                       setPermState(getNotificationPermissionStatus())
                       if (granted) {
-                        sendNativeOSNotification("🔔 Notifikasi Berhasil Diaktifkan!", "Anda akan menerima pemberitahuan setiap ada nota baru atau permintaan approval.")
+                        sendNativeOSNotification("Notifikasi Berhasil Diaktifkan", "Anda akan menerima pemberitahuan setiap ada nota baru atau permintaan persetujuan.")
                       }
                     }}
                     className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-extrabold text-xs transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
@@ -218,13 +219,14 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
 
                 <button
                   type="button"
-                  onClick={() => {
-                    sendNativeOSNotification(
-                      "🔔 Uji Coba Notifikasi Native",
-                      "Sistem notifikasi HP & Windows Perkara Nota aktif dan siap menerima pesan!"
+                  onClick={async () => {
+                    await testNativeOSNotification(
+                      "Pengujian Notifikasi Sistem",
+                      "Sistem notifikasi HP & Windows Perkara Nota beroperasi dengan baik."
                     )
+                    setPermState(getNotificationPermissionStatus())
                   }}
-                  className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5"
                 >
                   <Zap className="w-4 h-4 text-amber-400" /> Uji Notifikasi Native
                 </button>
@@ -391,11 +393,17 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
               </div>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-amber-900 text-xs leading-relaxed font-medium">
+            <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-amber-900 text-xs leading-relaxed font-medium flex items-start gap-2">
               {isKaryawan ? (
-                <>🔒 Fitur penggantian password dan persetujuan verifikasi <strong>dikhususkan untuk Admin</strong>.</>
+                <>
+                  <Lock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <span>Fitur penggantian password dan persetujuan verifikasi <strong>dikhususkan untuk Admin</strong>.</span>
+                </>
               ) : (
-                <>🔑 Password yang diganti hanya berlaku untuk ID <strong>{currentAdminUser}</strong> dan akan langsung tersimpan di sistem.</>
+                <>
+                  <Key className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <span>Password yang diganti hanya berlaku untuk ID <strong>{currentAdminUser}</strong> dan langsung tersimpan di sistem.</span>
+                </>
               )}
             </div>
           </div>

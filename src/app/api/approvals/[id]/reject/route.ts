@@ -70,7 +70,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       recipient: requester.toLowerCase(),
       sender: rejectingAdmin,
       type: "REJECT",
-      title: "Permintaan Ditolak ❌",
+      title: "Permintaan Ditolak",
       message: `Admin ${rejectingAdmin} menolak permintaan ${pendingApproval.actionType} Anda. Alasan: ${reason || "Tidak disetujui"}.`,
       approvalId: cleanId,
       isRead: false,

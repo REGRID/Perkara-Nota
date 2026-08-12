@@ -240,7 +240,7 @@ export async function POST(req: NextRequest) {
         recipient: recipientAdmin,
         sender: uploaderName,
         type: "NEW_RECEIPT",
-        title: "🧾 Nota Baru Masuk",
+        title: "Nota Baru Masuk",
         message: `${uploaderName} telah menyimpan nota baru dari "${merchantName || 'Nota / Toko'}" sebesar Rp ${(Number(totalAmount) || 0).toLocaleString("id-ID")}.`,
         isRead: false,
       })
@@ -287,7 +287,7 @@ export async function DELETE(req: NextRequest) {
         recipient: recipientAdmin,
         sender: adminUser,
         type: "REQUEST",
-        title: `🗑️ Permintaan Hapus Massal (${ids.length} Nota)`,
+        title: `Permintaan Hapus Massal (${ids.length} Nota)`,
         message: `Admin ${adminUser} mengajukan penghapusan massal untuk ${ids.length} nota.`,
         approvalId: approval.id,
         isRead: false,

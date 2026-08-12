@@ -173,7 +173,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       recipient: requester.toLowerCase(),
       sender: approvingAdmin,
       type: "APPROVE",
-      title: "Permintaan Diverifikasi & Disetujui ✅",
+      title: "Permintaan Diverifikasi & Disetujui",
       message: `Admin ${approvingAdmin} telah memverifikasi & menyetujui permintaan ${pendingApproval.actionType} Anda.`,
       approvalId: cleanId,
       isRead: false,

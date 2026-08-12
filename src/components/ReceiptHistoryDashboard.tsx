@@ -48,6 +48,7 @@ import {
   ShieldCheck,
   Image as ImageIcon,
   Bell,
+  AlertCircle,
 } from "lucide-react"
 import {
   ResponsiveContainer,
@@ -308,7 +309,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
           if (!n.isRead && n.sender.toLowerCase() !== currentAdminUser.toLowerCase()) {
             if (!notifiedIdsRef.current.has(n.id)) {
               notifiedIdsRef.current.add(n.id)
-              sendNativeOSNotification(`🔔 ${n.title}`, n.message)
+              sendNativeOSNotification(n.title, n.message)
             }
           }
         })
@@ -3947,8 +3948,8 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                             {/* RINCIAN PERUBAHAN EDIT DATA (SIDE-BY-SIDE DIFF) */}
                             {reqItem.actionType === "EDIT" && (
                               <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
-                                <span className="font-black text-slate-900 uppercase tracking-wider text-[11px] block border-b border-slate-100 pb-1">
-                                  🔍 Perbandingan Perubahan Data Edit:
+                                <span className="font-black text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5 border-b border-slate-100 pb-1">
+                                  <Edit className="w-3.5 h-3.5 text-blue-600" /> Perbandingan Perubahan Data Edit:
                                 </span>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
@@ -4027,7 +4028,9 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
                             {(reqItem.actionType === "DELETE" || reqItem.actionType === "BULK_DELETE") && (
                               <div className="bg-red-50 p-3 rounded-xl border border-red-200 text-xs text-red-900 space-y-1">
-                                <span className="font-bold block">⚠️ Peringatan Penghapusan Nota:</span>
+                                <span className="font-bold flex items-center gap-1.5">
+                                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" /> Peringatan Penghapusan Nota:
+                                </span>
                                 <p>Nota di atas akan <strong>dihapus secara permanen</strong> dari database Supabase jika Anda menyetujui permintaan ini.</p>
                               </div>
                             )}

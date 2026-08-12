@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
         recipient: recipientAdmin,
         sender: adminUser,
         type: "REQUEST",
-        title: `🔔 Permintaan Verifikasi (${actionType})`,
+        title: `Permintaan Verifikasi (${actionType})`,
         message: `Admin ${adminUser} mengajukan permintaan verifikasi ${actionType}.`,
         approvalId: newApproval.id,
         isRead: false,
