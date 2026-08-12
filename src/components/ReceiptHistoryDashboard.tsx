@@ -1611,6 +1611,25 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             )}
           </button>
 
+          {/* NOTIFICATION BUTTON IN MAIN ACTION BAR */}
+          <button
+            type="button"
+            onClick={() => setShowNotificationsModal(true)}
+            className={`relative inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-extrabold text-xs transition-all border shadow-2xs active:scale-95 shrink-0 cursor-pointer ${
+              unreadNotificationCount > 0
+                ? "bg-slate-900 text-white border-slate-800 font-black"
+                : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
+            }`}
+            title="Buka Pusat Notifikasi Aktivitas Admin"
+          >
+            <Bell className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" /> Notifikasi
+            {unreadNotificationCount > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 bg-amber-400 text-slate-950 rounded-full text-[10px] font-black leading-none animate-bounce">
+                {unreadNotificationCount}
+              </span>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={() => setShowCharts(!showCharts)}
@@ -2215,22 +2234,6 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 <span>{pendingApprovals.length} Verifikasi Pending</span>
               </button>
             )}
-
-            {/* NOTIFICATION BELL BUTTON WITH UNREAD COUNTER BADGE */}
-            <button
-              type="button"
-              onClick={() => setShowNotificationsModal(true)}
-              className="relative inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer"
-              title="Buka Pusat Notifikasi Aktivitas Admin"
-            >
-              <Bell className="w-3.5 h-3.5 text-amber-400" />
-              <span>Notifikasi</span>
-              {unreadNotificationCount > 0 && (
-                <span className="inline-flex items-center justify-center min-w-[18px] h-4 px-1 text-[10px] font-black text-slate-950 bg-amber-400 rounded-full animate-bounce">
-                  {unreadNotificationCount}
-                </span>
-              )}
-            </button>
           </div>
 
           {/* Bulk Action Controls */}
