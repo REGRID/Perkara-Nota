@@ -56,7 +56,7 @@ export default function HomePage() {
   // Saved Receipt Editing State
   const [editingReceiptId, setEditingReceiptId] = useState<string | null>(null)
   const [existingPaymentMethod, setExistingPaymentMethod] = useState<string>("Cash")
-  const [existingPaymentStatus, setExistingPaymentStatus] = useState<string>("Sudah Dilunasi")
+  const [existingPaymentStatus, setExistingPaymentStatus] = useState<string>("Lunas")
   const [existingNote, setExistingNote] = useState<string>("")
 
   // Realtime Quota Status State
@@ -431,7 +431,7 @@ export default function HomePage() {
       })),
     })
     setExistingPaymentMethod(targetReceipt.paymentMethod || "Cash")
-    setExistingPaymentStatus(targetReceipt.paymentStatus || "Sudah Dilunasi")
+    setExistingPaymentStatus(targetReceipt.paymentStatus || "Lunas")
     setExistingNote(targetReceipt.note || "")
     setParsingMode("saved_receipt_edit")
   }

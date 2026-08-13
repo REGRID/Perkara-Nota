@@ -482,7 +482,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
         body: JSON.stringify({
           receiptId: receipt.id,
           actionType: "SETTLE",
-          payload: { id: receipt.id, paymentStatus: "Lunas" },
+          payload: { id: receipt.id, paymentStatus: "Sudah Dilunasi" },
         }),
       })
       const data = await res.json()
@@ -697,8 +697,10 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       }
 
       // 5. Payment Status Filter
-      if (selectedStatusFilter === "Sudah Dilunasi") {
-        if (!isReceiptSettled(r.paymentStatus)) return false
+      if (selectedStatusFilter === "Lunas") {
+        if (r.paymentStatus !== "Lunas") return false
+      } else if (selectedStatusFilter === "Sudah Dilunasi") {
+        if (r.paymentStatus !== "Sudah Dilunasi") return false
       } else if (selectedStatusFilter === "Belum Direimburse / Tempo") {
         if (isReceiptSettled(r.paymentStatus)) return false
       }
@@ -833,7 +835,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       const res = await fetch("/api/receipts", {
         method: "PATCH",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ ids: selectedReceiptIds, paymentStatus: "Lunas" }),
+        body: JSON.stringify({ ids: selectedReceiptIds, paymentStatus: "Sudah Dilunasi" }),
       })
 
       const data = await res.json()
@@ -844,7 +846,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
         } else {
           setAllReceipts((prev) =>
             prev.map((r) =>
-              selectedReceiptIds.includes(r.id) ? { ...r, paymentStatus: "Lunas" } : r
+              selectedReceiptIds.includes(r.id) ? { ...r, paymentStatus: "Sudah Dilunasi" } : r
             )
           )
         }
@@ -2140,13 +2142,13 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 </button>
               )}
             </div>            <div className="flex items-center gap-1.5 overflow-x-auto">
-              {["Semua Status", "Sudah Dilunasi", "Belum Direimburse / Tempo"].map((statusOpt) => (
+              {["Semua Status", "Lunas", "Sudah Dilunasi", "Belum Direimburse / Tempo"].map((statusOpt) => (
                 <button
                   key={statusOpt}
                   type="button"
                   onClick={() => {
                     setSelectedStatusFilter(statusOpt)
-                    if (statusOpt === "Sudah Dilunasi") {
+                    if (statusOpt === "Sudah Dilunasi" || statusOpt === "Lunas") {
                       setSelectedPersonFilter("Semua Penanggung Jawab")
                     }
                   }}
@@ -2161,8 +2163,8 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
               ))}
             </div>
 
-            {/* Sub-Status: Penanggung Jawab / Talangan (Only shown if NOT filtered by Sudah Dilunasi) */}
-            {selectedStatusFilter !== "Sudah Dilunasi" && availablePersonNames.length > 0 && (
+            {/* Sub-Status: Penanggung Jawab / Talangan (Only shown if NOT filtered by Lunas/Sudah Dilunasi) */}
+            {selectedStatusFilter !== "Sudah Dilunasi" && selectedStatusFilter !== "Lunas" && availablePersonNames.length > 0 && (
               <div className="flex items-center gap-1.5 overflow-x-auto pt-1 bg-amber-50/60 p-2.5 rounded-2xl border border-amber-200/70 transition-all animate-in fade-in duration-150">
                 <span className="text-[11px] font-black text-amber-900 flex items-center gap-1 shrink-0 uppercase tracking-wider mr-1">
                   <User className="w-3.5 h-3.5 text-amber-600" /> SUB-STATUS (TALANGAN):

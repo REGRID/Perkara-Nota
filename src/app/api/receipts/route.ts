@@ -195,7 +195,7 @@ export async function POST(req: NextRequest) {
         taxAmount: Number(taxAmount) || 0,
         totalAmount: Number(totalAmount) || 0,
         paymentMethod: paymentMethod || "Cash",
-        paymentStatus: !paymentStatus || paymentStatus === "Lunas" ? "Sudah Dilunasi" : paymentStatus,
+        paymentStatus: paymentStatus || "Lunas",
         note: cleanedNote,
         createdAt: nowIso,
         updatedAt: nowIso,
@@ -323,7 +323,7 @@ export async function PATCH(req: NextRequest) {
 
     invalidateReceiptsListCache()
 
-    const statusToSet = !paymentStatus || paymentStatus === "Lunas" ? "Sudah Dilunasi" : paymentStatus
+    const statusToSet = paymentStatus || "Sudah Dilunasi"
     const compressedProof = proofImageUrl ? await compressBase64Image(proofImageUrl) : null
 
     const payloadObj = {
