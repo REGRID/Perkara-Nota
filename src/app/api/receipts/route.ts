@@ -246,6 +246,7 @@ export async function POST(req: NextRequest) {
         type: "NEW_RECEIPT",
         title: "Nota Baru Masuk",
         message: `${uploaderName} telah menyimpan nota baru dari "${merchantName || 'Nota / Toko'}" sebesar Rp ${(Number(totalAmount) || 0).toLocaleString("id-ID")}.`,
+        receiptId: newReceipt.id,
         isRead: false,
       })
     } catch (nErr) {

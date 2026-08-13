@@ -63,6 +63,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         title: "Permintaan Edit Nota",
         message: `Admin ${adminUser} mengajukan perubahan data nota "${body.merchantName || 'Nota'}".`,
         approvalId: approval.id,
+        receiptId: id,
         isRead: false,
       })
     } catch (nErr) {
@@ -111,6 +112,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         title: "Permintaan Hapus Nota",
         message: `Admin ${adminUser} mengajukan penghapusan nota.`,
         approvalId: approval.id,
+        receiptId: id,
         isRead: false,
       })
     } catch (nErr) {

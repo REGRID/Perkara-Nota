@@ -49,6 +49,7 @@ import {
   Image as ImageIcon,
   Bell,
   AlertCircle,
+  ExternalLink,
 } from "lucide-react"
 import {
   ResponsiveContainer,
@@ -316,6 +317,56 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       }
     } catch (e) {
       console.error("Fetch notifications error:", e)
+    }
+  }
+
+  // Handle Single Notification Item Click (Mark Read + Navigate to Receipt Detail / Approval Modal)
+  const handleNotificationClick = async (n: any) => {
+    if (!n.isRead) {
+      try {
+        await fetch("/api/notifications", {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ id: n.id }),
+        })
+        setNotifications((prev) =>
+          prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
+        )
+        setUnreadNotificationCount((prev) => Math.max(0, prev - 1))
+      } catch (e) {
+        console.error("Mark single notification read error:", e)
+      }
+    }
+
+    setShowNotificationsModal(false)
+
+    // Check if notification is a pending approval request
+    if (n.approvalId) {
+      const hasPendingApproval = pendingApprovals.some((app) => app.id === n.approvalId)
+      if (hasPendingApproval) {
+        setShowApprovalModal(true)
+        return
+      }
+    }
+
+    // Direct to target receipt detail
+    let targetReceipt: ReceiptData | undefined
+    if (n.receiptId) {
+      targetReceipt = allReceipts.find((r) => r.id === n.receiptId)
+    }
+
+    if (!targetReceipt && n.message) {
+      const match = n.message.match(/"([^"]+)"/)
+      if (match && match[1]) {
+        const merchantQ = match[1].trim().toLowerCase()
+        targetReceipt = allReceipts.find((r) => r.merchantName.toLowerCase().includes(merchantQ))
+      }
+    }
+
+    if (targetReceipt) {
+      setSelectedReceipt(targetReceipt)
+    } else if (n.type === "REQUEST" || n.approvalId) {
+      setShowApprovalModal(true)
     }
   }
 
@@ -1648,9 +1699,18 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             }`}
             title="Buka Pusat Notifikasi Aktivitas Admin"
           >
-            <Bell className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" /> Notifikasi
+            <div className="relative flex items-center justify-center">
+              <Bell className="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
+              {unreadNotificationCount > 0 && (
+                <span className="absolute -top-1 -right-1.5 flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 border border-slate-900"></span>
+                </span>
+              )}
+            </div>
+            <span>Notifikasi</span>
             {unreadNotificationCount > 0 && (
-              <span className="ml-0.5 px-1.5 py-0.5 bg-amber-400 text-slate-950 rounded-full text-[10px] font-black leading-none animate-bounce">
+              <span className="ml-0.5 px-1.5 py-0.5 bg-red-600 text-white rounded-full text-[10px] font-black leading-none shadow-xs">
                 {unreadNotificationCount}
               </span>
             )}
@@ -4382,17 +4442,31 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 notifications.map((n: any) => (
                   <div
                     key={n.id}
-                    className={`p-3 rounded-2xl border text-xs space-y-1 transition-all ${
-                      !n.isRead ? "bg-amber-50/80 border-amber-200" : "bg-white border-slate-200 opacity-80"
+                    onClick={() => handleNotificationClick(n)}
+                    className={`p-3.5 rounded-2xl border text-xs space-y-1.5 transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.99] ${
+                      !n.isRead
+                        ? "bg-amber-50/90 border-amber-300 ring-1 ring-amber-400/30 shadow-xs"
+                        : "bg-white border-slate-200 hover:bg-slate-50 opacity-85"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-slate-900">{n.title}</span>
-                      <span className="text-[10px] text-slate-400 font-medium">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        {!n.isRead && (
+                          <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 animate-pulse" title="Belum Dibaca" />
+                        )}
+                        <span className="font-extrabold text-slate-900">{n.title}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-medium shrink-0">
                         {new Date(n.createdAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     </div>
                     <p className="text-slate-600 font-medium leading-snug">{n.message}</p>
+                    <div className="pt-1 flex items-center justify-between text-[10.5px] text-emerald-700 font-bold border-t border-slate-100/80">
+                      <span className="flex items-center gap-1">
+                        <ExternalLink className="w-3 h-3 text-emerald-600" /> Klik untuk lihat rincian nota ➔
+                      </span>
+                      {!n.isRead && <span className="text-amber-700 font-black text-[9.5px] uppercase bg-amber-100 px-1.5 py-0.5 rounded-md">Baru</span>}
+                    </div>
                   </div>
                 ))
               )}
