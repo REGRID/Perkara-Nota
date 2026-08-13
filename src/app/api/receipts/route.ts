@@ -123,13 +123,15 @@ export async function GET(req: NextRequest) {
     // Role KARYAWAN Data Scoping: Only return receipts uploaded by Karyawan or Talangan Karyawan
     const userRole = getAdminRoleFromRequest(req)
     if (userRole === "KARYAWAN") {
+      const knownStaff = ["reza", "ummu", "cheisa", "novi", "titis", "karyawan"]
       normalizedReceipts = normalizedReceipts.filter((r: any) => {
         const noteText = (r.note || "").toLowerCase()
         const method = (r.paymentMethod || "").toLowerCase()
         return (
           method === "talangan karyawan" ||
           noteText.includes("(karyawan)") ||
-          noteText.includes("diunggah oleh:")
+          noteText.includes("diunggah oleh:") ||
+          knownStaff.some((st) => noteText.includes(st))
         )
       })
     }

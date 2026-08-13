@@ -44,15 +44,23 @@ export async function GET(req: NextRequest) {
 
     // Strict Filter for KARYAWAN: Only see notifications from fellow Karyawan inputs
     if (userRole === "KARYAWAN") {
+      const knownStaff = ["karyawan", "reza", "ummu", "cheisa", "novi", "titis"]
       notifications = notifications.filter((n) => {
-        const senderLower = (n.sender || "").toLowerCase()
-        const isFromKaryawan = senderLower.includes("karyawan") || n.recipient === "karyawan"
+        const senderLower = (n.sender || "").toLowerCase().trim()
+        const isFromKaryawan =
+          knownStaff.some((staff) => senderLower.includes(staff)) ||
+          n.recipient === "karyawan"
         const isNewReceipt = n.type === "NEW_RECEIPT"
         return isNewReceipt && isFromKaryawan
       })
     }
 
-    const unreadCount = notifications.filter((n) => !n.isRead && n.sender.toLowerCase() !== cleanUser).length
+    const unreadCount = notifications.filter((n) => {
+      if (n.isRead) return false
+      const senderLower = (n.sender || "").toLowerCase()
+      if (cleanUser && cleanUser !== "all" && senderLower.includes(cleanUser)) return false
+      return true
+    }).length
 
     return NextResponse.json({
       notifications,
