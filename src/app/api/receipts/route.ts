@@ -240,10 +240,8 @@ export async function POST(req: NextRequest) {
         ? "Karyawan"
         : getAdminUserFromRequest(req) || "Admin"
 
-      const recipient = isKaryawanUpload ? "all" : (uploaderName.toLowerCase().includes("rama") ? "refo" : "rama")
-
       await supabase.from("notifications").insert({
-        recipient: recipient,
+        recipient: "all",
         sender: uploaderName,
         type: "NEW_RECEIPT",
         title: "Nota Baru Masuk",
@@ -288,9 +286,8 @@ export async function DELETE(req: NextRequest) {
 
     // Insert Notification for other admin
     try {
-      const recipientAdmin = adminUser.toLowerCase().includes("rama") ? "refo" : "rama"
       await supabase.from("notifications").insert({
-        recipient: recipientAdmin,
+        recipient: "all",
         sender: adminUser,
         type: "REQUEST",
         title: `Permintaan Hapus Massal (${ids.length} Nota)`,
@@ -349,10 +346,9 @@ export async function PATCH(req: NextRequest) {
       throw new Error(error.message)
     }
 
-    // Insert Notification for other admin
-    const recipientAdmin = adminUser.toLowerCase() === "rama" ? "refo" : "rama"
+    // Insert Notification for all admins
     await supabase.from("notifications").insert({
-      recipient: recipientAdmin,
+      recipient: "all",
       sender: adminUser,
       type: "REQUEST",
       title: `Pengajuan Pelunasan (${ids.length} Nota)`,

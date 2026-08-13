@@ -64,10 +64,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       throw new Error(updateErr.message)
     }
 
-    // Insert notification to requesting admin
-    const requester = pendingApproval.requestedBy
+    // Insert notification to all admins
     await supabase.from("notifications").insert({
-      recipient: requester.toLowerCase(),
+      recipient: "all",
       sender: rejectingAdmin,
       type: "REJECT",
       title: "Permintaan Ditolak",

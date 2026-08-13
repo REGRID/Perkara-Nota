@@ -72,11 +72,10 @@ export async function POST(req: NextRequest) {
       throw new Error(error.message)
     }
 
-    // Insert Notification for other admin
+    // Insert Notification for all admins
     try {
-      const recipientAdmin = adminUser.toLowerCase().includes("rama") ? "refo" : "rama"
       await supabase.from("notifications").insert({
-        recipient: recipientAdmin,
+        recipient: "all",
         sender: adminUser,
         type: "REQUEST",
         title: `Permintaan Verifikasi (${actionType})`,
