@@ -50,6 +50,7 @@ import {
   Bell,
   AlertCircle,
   ExternalLink,
+  ArrowUpDown,
 } from "lucide-react"
 import {
   ResponsiveContainer,
@@ -241,6 +242,9 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   const [dateRangeFilter, setDateRangeFilter] = useState<"all" | "today" | "7days" | "month" | "custom">("all")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+
+  // Sort Option State
+  const [sortBy, setSortBy] = useState<"date-desc" | "date-asc" | "amount-desc" | "amount-asc" | "merchant-asc" | "merchant-desc">("date-desc")
 
   // Backup & Restore State
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -718,13 +722,13 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     return "Lunas"
   }
 
-  // SEAMLESS INSTANT CLIENT-SIDE FILTERING (Category + Sub-Category + Search + Date Range + Status)
+  // SEAMLESS INSTANT CLIENT-SIDE FILTERING & SORTING (Category + Sub-Category + Search + Date Range + Status + Sort)
   const filteredReceipts = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0]
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
     const currentMonthStr = todayStr.substring(0, 7) // YYYY-MM
 
-    return allReceipts.filter((r) => {
+    const filtered = allReceipts.filter((r) => {
       // 1. Date Range Filter
       if (dateRangeFilter === "today" && r.date !== todayStr) return false
       if (dateRangeFilter === "7days" && r.date < sevenDaysAgo) return false
@@ -789,6 +793,33 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
       return true
     })
+
+    // 7. Sort Filtered Receipts
+    return filtered.sort((a, b) => {
+      if (sortBy === "date-desc") {
+        const dateComp = (b.date || "").localeCompare(a.date || "")
+        if (dateComp !== 0) return dateComp
+        return (b.createdAt || "").localeCompare(a.createdAt || "")
+      }
+      if (sortBy === "date-asc") {
+        const dateComp = (a.date || "").localeCompare(b.date || "")
+        if (dateComp !== 0) return dateComp
+        return (a.createdAt || "").localeCompare(b.createdAt || "")
+      }
+      if (sortBy === "amount-desc") {
+        return (b.totalAmount || 0) - (a.totalAmount || 0)
+      }
+      if (sortBy === "amount-asc") {
+        return (a.totalAmount || 0) - (b.totalAmount || 0)
+      }
+      if (sortBy === "merchant-asc") {
+        return (a.merchantName || "").localeCompare(b.merchantName || "", "id", { sensitivity: "base" })
+      }
+      if (sortBy === "merchant-desc") {
+        return (b.merchantName || "").localeCompare(a.merchantName || "", "id", { sensitivity: "base" })
+      }
+      return 0
+    })
   }, [
     allReceipts,
     dateRangeFilter,
@@ -801,12 +832,13 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     subQ,
     selectedStatusFilter,
     selectedPersonFilter,
+    sortBy,
   ])
 
-  // Reset to Page 1 when filters change
+  // Reset to Page 1 when filters or sort change
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, dateRangeFilter, startDate, endDate, selectedCategory, selectedSubCategory, selectedStatusFilter, selectedPersonFilter])
+  }, [searchQuery, dateRangeFilter, startDate, endDate, selectedCategory, selectedSubCategory, selectedStatusFilter, selectedPersonFilter, sortBy])
 
   // Build lookup map for receipts that have pending approval requests
   const pendingApprovalMap = useMemo(() => {
@@ -2065,7 +2097,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
       {/* SEARCH & FILTER BAR DIRECTLY ABOVE RECEIPTS HISTORY */}
       <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-2xs space-y-4">
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
           {/* Search Box Input */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -2087,25 +2119,50 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             )}
           </div>
 
-          {/* DATE RANGE FILTER DROPDOWN */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
-              <Calendar className="w-4 h-4 text-emerald-600" /> Periode:
-            </span>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* DATE RANGE FILTER DROPDOWN */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+                <Calendar className="w-4 h-4 text-emerald-600" /> Periode:
+              </span>
 
-            <div className="relative inline-block">
-              <select
-                value={dateRangeFilter}
-                onChange={(e) => setDateRangeFilter(e.target.value as any)}
-                className="appearance-none pl-3.5 pr-8 py-2 rounded-xl border border-slate-300 text-xs font-extrabold text-slate-800 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs cursor-pointer hover:border-slate-400 transition-colors"
-              >
-                <option value="all">Semua Waktu</option>
-                <option value="today">Hari Ini</option>
-                <option value="7days">7 Hari Terakhir</option>
-                <option value="month">Bulan Ini</option>
-                <option value="custom">Kustom Tanggal...</option>
-              </select>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <div className="relative inline-block">
+                <select
+                  value={dateRangeFilter}
+                  onChange={(e) => setDateRangeFilter(e.target.value as any)}
+                  className="appearance-none pl-3.5 pr-8 py-2 rounded-xl border border-slate-300 text-xs font-extrabold text-slate-800 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs cursor-pointer hover:border-slate-400 transition-colors"
+                >
+                  <option value="all">Semua Waktu</option>
+                  <option value="today">Hari Ini</option>
+                  <option value="7days">7 Hari Terakhir</option>
+                  <option value="month">Bulan Ini</option>
+                  <option value="custom">Kustom Tanggal...</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* SORT BY DROPDOWN */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+                <ArrowUpDown className="w-4 h-4 text-emerald-600" /> Urutkan:
+              </span>
+
+              <div className="relative inline-block">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="appearance-none pl-3.5 pr-8 py-2 rounded-xl border border-slate-300 text-xs font-extrabold text-slate-800 bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-2xs cursor-pointer hover:border-slate-400 transition-colors"
+                >
+                  <option value="date-desc">Tanggal Terbaru</option>
+                  <option value="date-asc">Tanggal Terlama</option>
+                  <option value="amount-desc">Nominal Tertinggi</option>
+                  <option value="amount-asc">Nominal Terendah</option>
+                  <option value="merchant-asc">Nama Toko (A - Z)</option>
+                  <option value="merchant-desc">Nama Toko (Z - A)</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
             </div>
           </div>
         </div>
