@@ -12,10 +12,10 @@ export async function GET(req: NextRequest) {
       .from("notifications")
       .select("*")
       .order("createdAt", { ascending: false })
-      .limit(50)
+      .limit(100)
 
     if (userRole === "ADMIN") {
-      query = query.or(`recipient.eq.${cleanUser},recipient.eq.admin,recipient.eq.all,recipient.eq.*`)
+      query = query.or(`recipient.eq.${cleanUser},recipient.eq.admin,recipient.eq.all,recipient.eq.*,recipient.eq.rama,recipient.eq.refo`)
     } else {
       // Role KARYAWAN: Only receive notifications targeted to karyawan/all
       query = query.or(`recipient.eq.karyawan,recipient.eq.all,recipient.eq.${cleanUser},recipient.eq.*`)
@@ -29,6 +29,18 @@ export async function GET(req: NextRequest) {
     }
 
     let notifications = rawNotifications || []
+
+    // Background auto-migration of old single-recipient notifications to 'all'
+    if (userRole === "ADMIN") {
+      void (async () => {
+        try {
+          await supabase
+            .from("notifications")
+            .update({ recipient: "all" })
+            .or("recipient.eq.rama,recipient.eq.refo")
+        } catch (e) {}
+      })()
+    }
 
     // Strict Filter for KARYAWAN: Only see notifications from fellow Karyawan inputs
     if (userRole === "KARYAWAN") {
