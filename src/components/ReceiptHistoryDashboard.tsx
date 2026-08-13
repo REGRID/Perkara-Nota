@@ -645,6 +645,28 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     return st === "lunas" || st.includes("sudah")
   }
 
+  // Helper to determine effective payment status display ("Lunas" vs "Sudah Dilunasi")
+  const getEffectivePaymentStatus = (receipt: { paymentStatus?: string | null; paymentMethod?: string | null; note?: string | null }): string => {
+    const status = receipt.paymentStatus || "Lunas"
+    if (status.toLowerCase().includes("belum") || status.toLowerCase().includes("tempo")) {
+      return status
+    }
+    const method = (receipt.paymentMethod || "").toLowerCase()
+    const noteText = (receipt.note || "").toLowerCase()
+    const isTalanganOrHutang =
+      method.includes("pribadi") ||
+      method.includes("talangan") ||
+      method.includes("hutang") ||
+      method.includes("supplier") ||
+      noteText.includes("[dibayar oleh:")
+
+    if (isTalanganOrHutang) {
+      return "Sudah Dilunasi"
+    }
+
+    return "Lunas"
+  }
+
   // SEAMLESS INSTANT CLIENT-SIDE FILTERING (Category + Sub-Category + Search + Date Range + Status)
   const filteredReceipts = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0]
@@ -697,10 +719,11 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       }
 
       // 5. Payment Status Filter
+      const effectiveStatus = getEffectivePaymentStatus(r)
       if (selectedStatusFilter === "Lunas") {
-        if (r.paymentStatus !== "Lunas") return false
+        if (effectiveStatus !== "Lunas") return false
       } else if (selectedStatusFilter === "Sudah Dilunasi") {
-        if (r.paymentStatus !== "Sudah Dilunasi") return false
+        if (effectiveStatus !== "Sudah Dilunasi") return false
       } else if (selectedStatusFilter === "Belum Direimburse / Tempo") {
         if (isReceiptSettled(r.paymentStatus)) return false
       }
@@ -2503,16 +2526,21 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                               <CheckCircle2 className="w-3.5 h-3.5" /> Lunasi
                             </button>
                           ) : (
-                            <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] border shrink-0 ${
-                                receipt.paymentStatus === "Sudah Dilunasi"
-                                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                                  : "bg-green-50 text-green-800 border-green-200"
-                              }`}
-                            >
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              {receipt.paymentStatus === "Sudah Dilunasi" ? "Sudah Dilunasi" : "Lunas"}
-                            </span>
+                            (() => {
+                              const effSt = getEffectivePaymentStatus(receipt)
+                              return (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] border shrink-0 ${
+                                    effSt === "Sudah Dilunasi"
+                                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                      : "bg-green-50 text-green-800 border-green-200"
+                                  }`}
+                                >
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  {effSt}
+                                </span>
+                              )
+                            })()
                           )}
 
                           {onEditReceipt && (
