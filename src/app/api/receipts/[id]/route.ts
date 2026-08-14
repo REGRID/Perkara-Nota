@@ -21,55 +21,66 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "ID nota tidak valid" }, { status: 400 })
     }
 
-    // 1. Direct PG Query (Fastest & 100% Reliable)
-    const pgRes = await queryPg(
-      `SELECT 
-        r.id, 
-        r."merchantName", 
-        r.date, 
-        r."imageUrl", 
-        r.subtotal, 
-        r."taxAmount", 
-        r."totalAmount", 
-        r."paymentMethod", 
-        r."paymentStatus", 
-        r.note, 
-        r."staffName", 
-        r."createdAt", 
-        r."updatedAt",
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'id', i.id,
-              'name', i.name,
-              'category', i.category,
-              'subCategory', i."subCategory",
-              'price', i.price,
-              'quantity', i.quantity
-            )
-          ) FILTER (WHERE i.id IS NOT NULL),
-          '[]'::json
-        ) as items
-      FROM receipts r
-      LEFT JOIN receipt_items i ON i."receiptId" = r.id
-      WHERE r.id = $1
-      GROUP BY r.id
-      LIMIT 1`,
-      [id]
-    )
+    let receipt: any = null
 
-    let receipt = pgRes.rows && pgRes.rows.length > 0 ? pgRes.rows[0] : null
-
-    // 2. Fallback to Supabase JS Client if PG fails
-    if (!receipt) {
-      const { data: sbData } = await supabase
+    // Strategy 1: Supabase JS (Over HTTPS - 100% Native on Vercel Serverless, exactly like commit 4e1545e)
+    try {
+      const { data, error } = await supabase
         .from("receipts")
-        .select(SINGLE_RECEIPT_SELECT)
+        .select("*, items:receipt_items(*)")
         .eq("id", id)
-        .limit(1)
+        .maybeSingle()
 
-      if (sbData && sbData[0]) {
-        receipt = sbData[0]
+      if (!error && data) {
+        receipt = data
+      }
+    } catch (sbErr) {
+      console.warn("Supabase single fetch notice:", sbErr)
+    }
+
+    // Strategy 2: Direct PostgreSQL Query Fallback
+    if (!receipt) {
+      try {
+        const pgRes = await queryPg(
+          `SELECT 
+            r.id, 
+            r."merchantName", 
+            r.date, 
+            r."imageUrl", 
+            r.subtotal, 
+            r."taxAmount", 
+            r."totalAmount", 
+            r."paymentMethod", 
+            r."paymentStatus", 
+            r.note, 
+            r."staffName", 
+            r."createdAt", 
+            r."updatedAt",
+            COALESCE(
+              json_agg(
+                json_build_object(
+                  'id', i.id,
+                  'name', i.name,
+                  'category', i.category,
+                  'subCategory', i."subCategory",
+                  'price', i.price,
+                  'quantity', i.quantity
+                )
+              ) FILTER (WHERE i.id IS NOT NULL),
+              '[]'::json
+            ) as items
+          FROM receipts r
+          LEFT JOIN receipt_items i ON i."receiptId" = r.id
+          WHERE r.id = $1
+          GROUP BY r.id
+          LIMIT 1`,
+          [id]
+        )
+        if (pgRes.rows && pgRes.rows.length > 0) {
+          receipt = pgRes.rows[0]
+        }
+      } catch (pgErr) {
+        console.warn("PG query notice:", pgErr)
       }
     }
 
@@ -78,7 +89,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     const res = NextResponse.json(receipt)
-    res.headers.set("Cache-Control", "public, s-maxage=5, stale-while-revalidate=30")
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate")
     return res
   } catch (error: any) {
     console.error("GET Single Receipt Error:", error)
