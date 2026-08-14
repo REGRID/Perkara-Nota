@@ -69,6 +69,7 @@ import {
 import { ImageInteractiveLightbox } from "@/components/ImageInteractiveLightbox"
 import { getAuthHeaders } from "@/lib/authClient"
 import { requestNotificationPermission, sendNativeOSNotification } from "@/lib/pwaNotification"
+import { compressImageBase64 } from "@/lib/ocr"
 
 export interface ReceiptItem {
   id: string
@@ -222,6 +223,56 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   }, [selectedReceipt?.id])
 
   const [deletingReceipt, setDeletingReceipt] = useState<ReceiptData | null>(null)
+  const [revealedHeavyImages, setRevealedHeavyImages] = useState<Record<string, boolean>>({})
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
+  const detailFileInputRef = useRef<HTMLInputElement>(null)
+
+  const getImageSizeKb = (imageStr?: string | null): number => {
+    if (!imageStr) return 0
+    if (imageStr.includes("base64,")) {
+      const b64Data = imageStr.split("base64,")[1] || ""
+      return Math.round((b64Data.length * 0.75) / 1024)
+    }
+    return Math.round(imageStr.length / 1024)
+  }
+
+  const handleUploadReceiptPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedReceipt) return
+    setIsUploadingPhoto(true)
+    try {
+      const reader = new FileReader()
+      reader.onload = async (ev) => {
+        const rawBase64 = ev.target?.result as string
+        const compressed = await compressImageBase64(rawBase64, 1400, 1400, 0.8)
+
+        const res = await fetch(`/api/receipts/${selectedReceipt.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({ imageUrl: compressed }),
+        })
+
+        if (res.ok) {
+          const data = await res.json()
+          const newUrl = data.receipt?.imageUrl || compressed
+          setSelectedReceipt((prev) => (prev && prev.id === selectedReceipt.id ? { ...prev, imageUrl: newUrl } : prev))
+          setAllReceipts((prev) => prev.map((r) => (r.id === selectedReceipt.id ? { ...r, imageUrl: newUrl } : r)))
+          alert("Foto nota berhasil diunggah dan disimpan!")
+        } else {
+          alert("Gagal mengunggah foto nota ke server.")
+        }
+        setIsUploadingPhoto(false)
+      }
+      reader.readAsDataURL(file)
+    } catch (err) {
+      console.error("Upload receipt photo error:", err)
+      alert("Terjadi kesalahan saat memproses gambar.")
+      setIsUploadingPhoto(false)
+    }
+  }
 
   // Toggle Analytics Charts display & Chart View Type
   const [showCharts, setShowCharts] = useState(false)
@@ -3409,56 +3460,126 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             </div>
 
             <div className="p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-12 gap-6">
-              <div
-                onClick={() => selectedReceipt.imageUrl && setLightboxImageUrl(selectedReceipt.imageUrl)}
-                className={`md:col-span-5 bg-slate-900 rounded-2xl p-4 flex items-center justify-center min-h-[300px] relative group ${
-                  selectedReceipt.imageUrl ? "cursor-zoom-in" : ""
-                }`}
-              >
-                {selectedReceipt.imageUrl ? (
-                  <>
-                    {/* eslint-disable-next-html-element */}
-                    <img
-                      src={selectedReceipt.imageUrl}
-                      alt="Original Receipt"
-                      className="max-h-[420px] w-auto object-contain rounded-xl shadow-lg group-hover:opacity-85 transition-opacity"
-                    />
-                    <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-2xs rounded-2xl">
-                      <span className="px-4 py-2 rounded-2xl bg-slate-900/90 text-white font-extrabold text-xs border border-slate-700 flex items-center gap-2 shadow-2xl">
-                        <Maximize2 className="w-4 h-4 text-emerald-400" /> Klik Untuk Pop-Up Lightbox Zoom
-                      </span>
-                    </div>
-                  </>
-                ) : isLoadingDetailImage ? (
-                  <div className="text-center text-emerald-400 space-y-2 p-6">
-                    <RefreshCw className="w-10 h-10 mx-auto animate-spin" />
-                    <p className="text-xs font-bold">Memuat foto nota fisik dari database...</p>
+              {(() => {
+                const imgSizeKb = getImageSizeKb(selectedReceipt.imageUrl)
+                const isHeavy = imgSizeKb > 200
+                const isRevealed = !isHeavy || Boolean(revealedHeavyImages[selectedReceipt.id])
+
+                return (
+                  <div
+                    onClick={() => {
+                      if (selectedReceipt.imageUrl && isRevealed) {
+                        setLightboxImageUrl(selectedReceipt.imageUrl)
+                      }
+                    }}
+                    className={`md:col-span-5 bg-slate-900 rounded-2xl p-4 flex flex-col items-center justify-center min-h-[320px] relative group border border-slate-800 ${
+                      selectedReceipt.imageUrl && isRevealed ? "cursor-zoom-in" : ""
+                    }`}
+                  >
+                    {isUploadingPhoto ? (
+                      <div className="text-center text-emerald-400 space-y-2 p-6">
+                        <RefreshCw className="w-10 h-10 mx-auto animate-spin" />
+                        <p className="text-xs font-bold">Mengompres & mengunggah foto nota...</p>
+                      </div>
+                    ) : selectedReceipt.imageUrl ? (
+                      isRevealed ? (
+                        <>
+                          {/* eslint-disable-next-html-element */}
+                          <img
+                            src={selectedReceipt.imageUrl}
+                            alt="Original Receipt"
+                            className="max-h-[420px] w-auto object-contain rounded-xl shadow-lg group-hover:opacity-90 transition-opacity"
+                          />
+                          <div className="absolute top-3 left-3 bg-slate-950/75 border border-slate-700/80 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold text-slate-300 backdrop-blur-xs pointer-events-none">
+                            {imgSizeKb} KB
+                          </div>
+                          <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-2xs rounded-2xl">
+                            <span className="px-4 py-2 rounded-2xl bg-slate-900/90 text-white font-extrabold text-xs border border-slate-700 flex items-center gap-2 shadow-2xl">
+                              <Maximize2 className="w-4 h-4 text-emerald-400" /> Klik Untuk Pop-Up Lightbox Zoom
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-center text-slate-300 space-y-3 p-6 bg-slate-950/70 rounded-2xl border border-amber-500/30 max-w-sm shadow-xl backdrop-blur-xs">
+                          <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                            <AlertTriangle className="w-6 h-6 text-amber-400" />
+                          </div>
+                          <div className="space-y-1">
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-300 text-[11px] font-mono font-bold">
+                              <span>Ukuran: {imgSizeKb} KB</span>
+                            </div>
+                            <p className="text-xs font-bold text-slate-200">
+                              Foto nota lebih dari 200 KB
+                            </p>
+                            <p className="text-[11px] text-slate-400 leading-relaxed">
+                              Tekan tombol di bawah untuk memuat dan melihat foto nota.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setRevealedHeavyImages((prev) => ({ ...prev, [selectedReceipt.id]: true }))
+                            }}
+                            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg hover:shadow-emerald-500/20 active:scale-95 cursor-pointer"
+                          >
+                            <Eye className="w-4 h-4" />
+                            Tekan untuk Load Nota ({imgSizeKb} KB)
+                          </button>
+                        </div>
+                      )
+                    ) : isLoadingDetailImage ? (
+                      <div className="text-center text-emerald-400 space-y-2 p-6">
+                        <RefreshCw className="w-10 h-10 mx-auto animate-spin" />
+                        <p className="text-xs font-bold">Memuat foto nota fisik dari database...</p>
+                      </div>
+                    ) : (
+                      <div className="text-center text-slate-500 space-y-3 p-6">
+                        <ReceiptIcon className="w-12 h-12 mx-auto text-slate-600" />
+                        <p className="text-xs font-medium text-slate-400">Tidak ada foto nota tersimpan</p>
+                        <div className="flex flex-col gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsLoadingDetailImage(true)
+                              fetch(`/api/receipts/${selectedReceipt.id}`)
+                                .then((res) => (res.ok ? res.json() : null))
+                                .then((data) => {
+                                  if (data && data.imageUrl) {
+                                    setSelectedReceipt((prev) => (prev && prev.id === selectedReceipt.id ? { ...prev, imageUrl: data.imageUrl } : prev))
+                                    setAllReceipts((prev) => prev.map((r) => (r.id === selectedReceipt.id ? { ...r, imageUrl: data.imageUrl } : r)))
+                                  }
+                                })
+                                .catch(() => {})
+                                .finally(() => setIsLoadingDetailImage(false))
+                            }}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-[11px] font-bold transition-colors inline-flex items-center justify-center gap-1.5"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            Coba Muat Ulang Foto
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => detailFileInputRef.current?.click()}
+                            className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl text-[11px] font-bold transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <UploadCloud className="w-3.5 h-3.5" />
+                            Unggah Foto Nota
+                          </button>
+                          <input
+                            ref={detailFileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleUploadReceiptPhoto}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="text-center text-slate-500 space-y-2 p-6">
-                    <ReceiptIcon className="w-12 h-12 mx-auto" />
-                    <p className="text-xs font-medium">Tidak ada foto nota tersimpan</p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsLoadingDetailImage(true)
-                        fetch(`/api/receipts/${selectedReceipt.id}`)
-                          .then((res) => (res.ok ? res.json() : null))
-                          .then((data) => {
-                            if (data && data.imageUrl) {
-                              setSelectedReceipt((prev) => (prev && prev.id === selectedReceipt.id ? { ...prev, imageUrl: data.imageUrl } : prev))
-                            }
-                          })
-                          .catch(() => {})
-                          .finally(() => setIsLoadingDetailImage(false))
-                      }}
-                      className="mt-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-[11px] font-bold transition-colors"
-                    >
-                      Coba Muat Ulang Foto
-                    </button>
-                  </div>
-                )}
-              </div>
+                )
+              })()}
 
               <div className="md:col-span-7 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">

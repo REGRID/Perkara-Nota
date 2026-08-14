@@ -5,6 +5,7 @@ import { sendWebPushNotification } from "@/lib/serverPush"
 import { invalidateReceiptsListCache } from "@/app/api/receipts/route"
 import { invalidateApprovalsCache } from "@/app/api/approvals/route"
 import { invalidateNotificationsCache } from "@/app/api/notifications/route"
+import { compressBase64Image } from "@/lib/imageCompressor"
 
 const SINGLE_RECEIPT_SELECT =
   "id, merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity)"
@@ -170,3 +171,43 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ error: "Gagal mengajukan penghapusan nota" }, { status: 500 })
   }
 }
+
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params
+    const body = await req.json()
+    const { imageUrl } = body
+
+    if (!imageUrl) {
+      return NextResponse.json({ error: "Data gambar nota tidak boleh kosong" }, { status: 400 })
+    }
+
+    const compressedImageUrl = await compressBase64Image(imageUrl)
+
+    const { data, error } = await supabase
+      .from("receipts")
+      .update({
+        imageUrl: compressedImageUrl,
+        updatedAt: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .select("id, merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt")
+      .single()
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    invalidateReceiptsListCache()
+
+    return NextResponse.json({
+      success: true,
+      message: "Foto nota berhasil diperbarui dan disimpan.",
+      receipt: data,
+    })
+  } catch (error: any) {
+    console.error("PATCH Receipt Image Error:", error)
+    return NextResponse.json({ error: error.message || "Gagal memperbarui foto nota" }, { status: 500 })
+  }
+}
+
