@@ -3433,8 +3433,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
       {/* FULL RECEIPT DETAIL MODAL (SHOWS ALL ITEMS OF THE RECEIPT) */}
       {selectedReceipt && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div
+          onClick={() => setSelectedReceipt(null)}
+          className="fixed inset-0 z-[70] bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+          >
             <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2">
