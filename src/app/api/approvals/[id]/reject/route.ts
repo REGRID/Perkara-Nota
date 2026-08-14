@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest, getAdminRoleFromRequest } from "@/lib/authHelper"
 import { sendWebPushNotification } from "@/lib/serverPush"
+import { invalidateApprovalsCache } from "@/app/api/approvals/route"
+import { invalidateNotificationsCache } from "@/app/api/notifications/route"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -64,6 +66,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       console.error("Update Reject Status Error:", updateErr)
       throw new Error(updateErr.message)
     }
+
+    // Invalidate caches immediately
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
 
     // Insert notification to all admins & Send Web Push
     try {

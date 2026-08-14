@@ -2,17 +2,37 @@ import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest, getAdminRoleFromRequest } from "@/lib/authHelper"
 
+const NOTIF_SELECT =
+  "id, recipient, sender, type, title, message, receiptId, approvalId, isRead, createdAt"
+
+// In-memory cache per user/role to reduce Supabase Egress during polling
+let notifCache: Map<string, { data: any; timestamp: number }> = new Map()
+const CACHE_TTL_MS = 8000 // 8 seconds cache
+
+export function invalidateNotificationsCache() {
+  notifCache.clear()
+}
+
 export async function GET(req: NextRequest) {
   try {
     const adminUser = getAdminUserFromRequest(req)
     const userRole = getAdminRoleFromRequest(req)
     const cleanUser = (adminUser || "all").trim().toLowerCase() || "all"
+    const cacheKey = `${userRole}_${cleanUser}`
+    const now = Date.now()
+
+    const cached = notifCache.get(cacheKey)
+    if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+      const res = NextResponse.json(cached.data)
+      res.headers.set("Cache-Control", "public, s-maxage=5, stale-while-revalidate=15")
+      return res
+    }
 
     let query = supabase
       .from("notifications")
-      .select("*")
+      .select(NOTIF_SELECT)
       .order("createdAt", { ascending: false })
-      .limit(100)
+      .limit(30)
 
     if (userRole === "ADMIN") {
       query = query.or(`recipient.eq.${cleanUser},recipient.eq.admin,recipient.eq.all,recipient.eq.*,recipient.eq.rama,recipient.eq.refo`)
@@ -29,18 +49,6 @@ export async function GET(req: NextRequest) {
     }
 
     let notifications = rawNotifications || []
-
-    // Background auto-migration of old single-recipient notifications to 'all'
-    if (userRole === "ADMIN") {
-      void (async () => {
-        try {
-          await supabase
-            .from("notifications")
-            .update({ recipient: "all" })
-            .or("recipient.eq.rama,recipient.eq.refo")
-        } catch (e) {}
-      })()
-    }
 
     // Strict Filter for KARYAWAN: Only see notifications from fellow Karyawan inputs
     if (userRole === "KARYAWAN") {
@@ -62,10 +70,16 @@ export async function GET(req: NextRequest) {
       return true
     }).length
 
-    return NextResponse.json({
+    const payload = {
       notifications,
       unreadCount,
-    })
+    }
+
+    notifCache.set(cacheKey, { data: payload, timestamp: now })
+
+    const res = NextResponse.json(payload)
+    res.headers.set("Cache-Control", "public, s-maxage=5, stale-while-revalidate=15")
+    return res
   } catch (error: any) {
     console.error("Notifications API Error:", error)
     return NextResponse.json({ notifications: [], unreadCount: 0 }, { status: 500 })
@@ -78,6 +92,8 @@ export async function PATCH(req: NextRequest) {
     const userRole = getAdminRoleFromRequest(req)
     const cleanUser = (adminUser || "all").trim().toLowerCase() || "all"
     const { id, markAllRead } = await req.json()
+
+    invalidateNotificationsCache()
 
     if (markAllRead) {
       if (userRole === "KARYAWAN") {

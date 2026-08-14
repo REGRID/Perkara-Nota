@@ -2,13 +2,19 @@ import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest } from "@/lib/authHelper"
 import { sendWebPushNotification } from "@/lib/serverPush"
+import { invalidateReceiptsListCache } from "@/app/api/receipts/route"
+import { invalidateApprovalsCache } from "@/app/api/approvals/route"
+import { invalidateNotificationsCache } from "@/app/api/notifications/route"
+
+const SINGLE_RECEIPT_SELECT =
+  "id, merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity)"
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
     const { data: receipt, error } = await supabase
       .from("receipts")
-      .select("*, items:receipt_items(*)")
+      .select(SINGLE_RECEIPT_SELECT)
       .eq("id", id)
       .single()
 
@@ -16,7 +22,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "Nota tidak ditemukan" }, { status: 404 })
     }
 
-    return NextResponse.json(receipt)
+    const res = NextResponse.json(receipt)
+    res.headers.set("Cache-Control", "public, s-maxage=10, stale-while-revalidate=60")
+    return res
   } catch (error: any) {
     console.error("GET Single Receipt Error:", error)
     return NextResponse.json({ error: "Gagal memuat detail nota" }, { status: 500 })
@@ -38,6 +46,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "Nota harus memiliki minimal 1 item produk" }, { status: 400 })
     }
 
+    invalidateReceiptsListCache()
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
+
     // Dual-Admin Control: Create Pending Approval for EDIT action in Supabase
     const { data: approval, error } = await supabase
       .from("pending_approvals")
@@ -48,7 +60,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         status: "PENDING",
         payload: JSON.stringify(body),
       })
-      .select("*")
+      .select("id, receiptId, actionType, requestedBy, status, createdAt")
       .single()
 
     if (error) {
@@ -77,7 +89,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         url: "/",
         recipientRole: "ADMIN",
         excludeUsername: adminUser,
-      }).catch((pErr) => console.warn("[WebPush Error on Edit Request]:", pErr))
+      }).catch((pErr: any) => console.warn("[WebPush Error on Edit Request]:", pErr))
+      invalidateNotificationsCache()
     } catch (nErr) {
       console.warn("Edit request notification insert notice:", nErr)
     }
@@ -98,6 +111,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const { id } = await params
     const adminUser = getAdminUserFromRequest(req)
 
+    invalidateReceiptsListCache()
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
+
     // Dual-Admin Control: Create Pending Approval for DELETE action in Supabase
     const { data: approval, error } = await supabase
       .from("pending_approvals")
@@ -108,7 +125,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         status: "PENDING",
         payload: JSON.stringify({ id }),
       })
-      .select("*")
+      .select("id, receiptId, actionType, requestedBy, status, createdAt")
       .single()
 
     if (error) {
@@ -137,7 +154,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         url: "/",
         recipientRole: "ADMIN",
         excludeUsername: adminUser,
-      }).catch((pErr) => console.warn("[WebPush Error on Delete Request]:", pErr))
+      }).catch((pErr: any) => console.warn("[WebPush Error on Delete Request]:", pErr))
+      invalidateNotificationsCache()
     } catch (nErr) {
       console.warn("Delete request notification insert notice:", nErr)
     }

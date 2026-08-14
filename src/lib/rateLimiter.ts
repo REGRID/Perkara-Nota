@@ -9,6 +9,12 @@ export interface RateLimitResult {
   resetAt: Date
 }
 
+// In-memory cache for Rate Limiting to prevent repeated Supabase queries
+const rateLimitCache = new Map<string, { result: RateLimitResult; timestamp: number }>()
+const RATE_LIMIT_CACHE_TTL = 60 * 1000 // 60 seconds cache
+
+const SCAN_LIMITS_SELECT = "id, ipAddress, scanCount, lastScanAt, resetAt"
+
 /**
  * Normalizes IP address strings (e.g. ::1, ::ffff:127.0.0.1, 127.0.0.1) to unified keys
  */
@@ -25,11 +31,16 @@ export function normalizeIp(ipAddress?: string | null): string {
 }
 
 /**
- * Checks rate limit using persistent Supabase database tracking.
+ * Checks rate limit using persistent Supabase database tracking with in-memory caching.
  */
 export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult> {
   const now = new Date()
   const cleanIp = normalizeIp(ipAddress)
+
+  const cached = rateLimitCache.get(cleanIp)
+  if (cached && now.getTime() - cached.timestamp < RATE_LIMIT_CACHE_TTL) {
+    return cached.result
+  }
 
   try {
     const tomorrow = new Date(now)
@@ -37,7 +48,7 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
 
     const { data: existingRecord } = await supabase
       .from("scan_limits")
-      .select("*")
+      .select(SCAN_LIMITS_SELECT)
       .eq("ipAddress", cleanIp)
       .maybeSingle()
 
@@ -52,19 +63,21 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
           lastScanAt: now.toISOString(),
           resetAt: tomorrow.toISOString(),
         })
-        .select("*")
+        .select(SCAN_LIMITS_SELECT)
         .maybeSingle()
 
       limitRecord = newRecord || existingRecord
     }
 
     if (!limitRecord) {
-      return {
+      const res: RateLimitResult = {
         allowed: true,
         remaining: DAILY_SCAN_LIMIT,
         current: 0,
         resetAt: tomorrow,
       }
+      rateLimitCache.set(cleanIp, { result: res, timestamp: now.getTime() })
+      return res
     }
 
     const resetAtDate = new Date(limitRecord.resetAt)
@@ -81,7 +94,7 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
           resetAt: nextReset.toISOString(),
         })
         .eq("id", limitRecord.id)
-        .select("*")
+        .select(SCAN_LIMITS_SELECT)
         .maybeSingle()
 
       if (updated) limitRecord = updated
@@ -91,12 +104,15 @@ export async function checkRateLimit(ipAddress: string): Promise<RateLimitResult
     const remaining = Math.max(DAILY_SCAN_LIMIT - current, 0)
     const allowed = true
 
-    return {
+    const result: RateLimitResult = {
       allowed,
       remaining,
       current,
       resetAt: new Date(limitRecord.resetAt || tomorrow),
     }
+
+    rateLimitCache.set(cleanIp, { result, timestamp: now.getTime() })
+    return result
   } catch (error) {
     console.error("Rate limiter DB error:", error)
     return {
@@ -116,10 +132,12 @@ export async function incrementRateLimit(ipAddress: string): Promise<number> {
   const now = new Date()
   const tomorrow = new Date(now.getTime() + 86400000)
 
+  rateLimitCache.delete(cleanIp)
+
   try {
     const { data: record } = await supabase
       .from("scan_limits")
-      .select("*")
+      .select(SCAN_LIMITS_SELECT)
       .eq("ipAddress", cleanIp)
       .maybeSingle()
 
@@ -132,7 +150,7 @@ export async function incrementRateLimit(ipAddress: string): Promise<number> {
           lastScanAt: now.toISOString(),
           resetAt: tomorrow.toISOString(),
         })
-        .select("*")
+        .select(SCAN_LIMITS_SELECT)
         .maybeSingle()
 
       return Math.max(DAILY_SCAN_LIMIT - (created?.scanCount || 1), 0)
@@ -146,7 +164,7 @@ export async function incrementRateLimit(ipAddress: string): Promise<number> {
         lastScanAt: now.toISOString(),
       })
       .eq("id", record.id)
-      .select("*")
+      .select(SCAN_LIMITS_SELECT)
       .maybeSingle()
 
     return Math.max(DAILY_SCAN_LIMIT - (updated?.scanCount || newCount), 0)

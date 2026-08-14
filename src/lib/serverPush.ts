@@ -47,7 +47,9 @@ export async function sendWebPushNotification(options: SendPushOptions) {
   try {
     const { title, message, url = "/", recipientRole = "ALL", excludeUsername, tag } = options
 
-    let query = supabase.from("push_subscriptions").select("*")
+    let query = supabase
+      .from("push_subscriptions")
+      .select("id, endpoint, p256dh, auth, username, role")
 
     if (recipientRole !== "ALL") {
       // Allow subscriptions that match target role or 'ALL'

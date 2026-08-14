@@ -3,6 +3,8 @@ import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest, getAdminRoleFromRequest } from "@/lib/authHelper"
 import { compressBase64Image } from "@/lib/imageCompressor"
 import { invalidateReceiptsListCache } from "@/app/api/receipts/route"
+import { invalidateApprovalsCache } from "@/app/api/approvals/route"
+import { invalidateNotificationsCache } from "@/app/api/notifications/route"
 import { sendWebPushNotification } from "@/lib/serverPush"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -167,6 +169,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       console.error("Update Approval Status Error:", updateErr)
       throw new Error(updateErr.message)
     }
+
+    // Invalidate caches immediately
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
+    invalidateReceiptsListCache()
 
     // Insert notification to all admins & Send Web Push
     try {

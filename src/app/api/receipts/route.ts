@@ -5,9 +5,11 @@ import { getAdminUserFromRequest, getAdminRoleFromRequest, getStaffNameFromReque
 import { getOrSeedCategories } from "@/lib/categories"
 import { compressBase64Image } from "@/lib/imageCompressor"
 import { sendWebPushNotification } from "@/lib/serverPush"
+import { invalidateApprovalsCache } from "@/app/api/approvals/route"
+import { invalidateNotificationsCache } from "@/app/api/notifications/route"
 
 const RECEIPT_LIST_SELECT =
-  "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, createdAt, updatedAt, items:receipt_items(*)"
+  "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity)"
 
 let listCache: { key: string; data: any; timestamp: number } | null = null
 const LIST_CACHE_TTL = 5000 // 5 seconds cache
@@ -320,6 +322,7 @@ export async function POST(req: NextRequest) {
         recipientRole: "ALL",
         excludeUsername: uploaderName,
       }).catch((pErr: any) => console.warn("[WebPush Error on New Receipt]:", pErr))
+      invalidateNotificationsCache()
     } catch (nErr) {
       console.warn("New receipt notification insert notice:", nErr)
     }
@@ -340,6 +343,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     invalidateReceiptsListCache()
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
 
     const { data: approval, error } = await supabase
       .from("pending_approvals")
@@ -402,6 +407,8 @@ export async function PATCH(req: NextRequest) {
     }
 
     invalidateReceiptsListCache()
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
 
     const statusToSet = paymentStatus || "Sudah Dilunasi"
     const compressedProof = proofImageUrl ? await compressBase64Image(proofImageUrl) : null

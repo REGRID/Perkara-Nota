@@ -646,13 +646,13 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     fetchPendingApprovals()
     fetchNotifications()
 
-    // Smart Polling: Only poll when document tab is active to save bandwidth & database connections
+    // Smart Polling: Poll at 25s intervals only when tab is active to heavily conserve Supabase Egress
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
         fetchPendingApprovals()
         fetchNotifications()
       }
-    }, 10000)
+    }, 25000)
 
     // Instant Sync when tab becomes visible again
     const handleVisibilityChange = () => {
