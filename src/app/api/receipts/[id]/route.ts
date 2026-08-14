@@ -7,6 +7,8 @@ import { invalidateApprovalsCache } from "@/app/api/approvals/route"
 import { invalidateNotificationsCache } from "@/app/api/notifications/route"
 import { compressBase64Image } from "@/lib/imageCompressor"
 
+import { queryPg } from "@/lib/pgDb"
+
 const SINGLE_RECEIPT_SELECT =
   "id, merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity)"
 
@@ -19,33 +21,55 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "ID nota tidak valid" }, { status: 400 })
     }
 
-    // 1. Primary Query with relational items
-    const { data: receipts, error } = await supabase
-      .from("receipts")
-      .select(SINGLE_RECEIPT_SELECT)
-      .eq("id", id)
-      .limit(1)
+    // 1. Direct PG Query (Fastest & 100% Reliable)
+    const pgRes = await queryPg(
+      `SELECT 
+        r.id, 
+        r."merchantName", 
+        r.date, 
+        r."imageUrl", 
+        r.subtotal, 
+        r."taxAmount", 
+        r."totalAmount", 
+        r."paymentMethod", 
+        r."paymentStatus", 
+        r.note, 
+        r."staffName", 
+        r."createdAt", 
+        r."updatedAt",
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id', i.id,
+              'name', i.name,
+              'category', i.category,
+              'subCategory', i."subCategory",
+              'price', i.price,
+              'quantity', i.quantity
+            )
+          ) FILTER (WHERE i.id IS NOT NULL),
+          '[]'::json
+        ) as items
+      FROM receipts r
+      LEFT JOIN receipt_items i ON i."receiptId" = r.id
+      WHERE r.id = $1
+      GROUP BY r.id
+      LIMIT 1`,
+      [id]
+    )
 
-    let receipt = receipts && receipts.length > 0 ? receipts[0] : null
+    let receipt = pgRes.rows && pgRes.rows.length > 0 ? pgRes.rows[0] : null
 
-    // 2. Fallback Query without relational items if needed
-    if (!receipt || error) {
-      const { data: directData } = await supabase
+    // 2. Fallback to Supabase JS Client if PG fails
+    if (!receipt) {
+      const { data: sbData } = await supabase
         .from("receipts")
-        .select("id, merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt")
+        .select(SINGLE_RECEIPT_SELECT)
         .eq("id", id)
         .limit(1)
 
-      if (directData && directData.length > 0) {
-        const { data: itemsData } = await supabase
-          .from("receipt_items")
-          .select("id, name, category, subCategory, price, quantity")
-          .eq("receiptId", id)
-
-        receipt = {
-          ...directData[0],
-          items: itemsData || [],
-        }
+      if (sbData && sbData[0]) {
+        receipt = sbData[0]
       }
     }
 
@@ -202,38 +226,33 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> | { id: string } }) {
   try {
-    const { id } = await params
+    const resolvedParams = params instanceof Promise ? await params : params
+    const id = resolvedParams?.id
     const body = await req.json()
     const { imageUrl } = body
 
-    if (!imageUrl) {
-      return NextResponse.json({ error: "Data gambar nota tidak boleh kosong" }, { status: 400 })
+    if (!id || !imageUrl) {
+      return NextResponse.json({ error: "ID dan data gambar nota wajib diisi" }, { status: 400 })
     }
 
     const compressedImageUrl = await compressBase64Image(imageUrl)
 
-    const { data, error } = await supabase
-      .from("receipts")
-      .update({
-        imageUrl: compressedImageUrl,
-        updatedAt: new Date().toISOString(),
-      })
-      .eq("id", id)
-      .select("id, merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt")
-      .single()
-
-    if (error) {
-      throw new Error(error.message)
-    }
+    const updateRes = await queryPg(
+      `UPDATE receipts 
+       SET "imageUrl" = $1, "updatedAt" = now() 
+       WHERE id = $2 
+       RETURNING id, "merchantName", date, "imageUrl", subtotal, "taxAmount", "totalAmount", "paymentMethod", "paymentStatus", note, "staffName", "createdAt", "updatedAt"`,
+      [compressedImageUrl, id]
+    )
 
     invalidateReceiptsListCache()
 
     return NextResponse.json({
       success: true,
       message: "Foto nota berhasil diperbarui dan disimpan.",
-      receipt: data,
+      receipt: updateRes.rows[0] || null,
     })
   } catch (error: any) {
     console.error("PATCH Receipt Image Error:", error)

@@ -7,6 +7,7 @@ import { compressBase64Image } from "@/lib/imageCompressor"
 import { sendWebPushNotification } from "@/lib/serverPush"
 import { invalidateApprovalsCache } from "@/app/api/approvals/route"
 import { invalidateNotificationsCache } from "@/app/api/notifications/route"
+import { queryPg } from "@/lib/pgDb"
 
 const RECEIPT_LIST_SELECT =
   "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity)"
@@ -38,23 +39,58 @@ export async function GET(req: NextRequest) {
 
     const rootKeyword = category ? category.split("/")[0].trim() : ""
 
-    let query = supabase
-      .from("receipts")
-      .select(RECEIPT_LIST_SELECT)
-      .order("createdAt", { ascending: false })
+    let receipts: any[] = []
 
-    if (limit) {
-      query = query.limit(limit)
+    try {
+      const pgRes = await queryPg(
+        `SELECT 
+          r.id, 
+          r."merchantName", 
+          r.date, 
+          r.subtotal, 
+          r."taxAmount", 
+          r."totalAmount", 
+          r."paymentMethod", 
+          r."paymentStatus", 
+          r.note, 
+          r."staffName", 
+          r."createdAt", 
+          r."updatedAt",
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'id', i.id,
+                'name', i.name,
+                'category', i.category,
+                'subCategory', i."subCategory",
+                'price', i.price,
+                'quantity', i.quantity
+              )
+            ) FILTER (WHERE i.id IS NOT NULL),
+            '[]'::json
+          ) as items
+        FROM receipts r
+        LEFT JOIN receipt_items i ON i."receiptId" = r.id
+        GROUP BY r.id
+        ORDER BY r."createdAt" DESC
+        ${limit ? `LIMIT ${limit}` : ''}`
+      )
+      receipts = pgRes.rows || []
+    } catch (pgErr) {
+      console.warn("Direct PG query notice, falling back to Supabase JS:", pgErr)
+      let query = supabase
+        .from("receipts")
+        .select(RECEIPT_LIST_SELECT)
+        .order("createdAt", { ascending: false })
+
+      if (limit) {
+        query = query.limit(limit)
+      }
+
+      const { data: rawReceipts, error } = await query
+      if (error) throw new Error(error.message)
+      receipts = rawReceipts || []
     }
-
-    const { data: rawReceipts, error } = await query
-
-    if (error) {
-      console.error("GET Receipts Supabase Error:", error)
-      throw new Error(error.message)
-    }
-
-    let receipts = rawReceipts || []
 
     // In-memory filter for complex relational search/category criteria
     if (search || category) {
