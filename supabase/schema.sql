@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS public.admin_accounts (
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE public.admin_accounts ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'ADMIN';
+
 INSERT INTO public.admin_accounts (username, password, role)
 VALUES 
     ('rama', 'adminnota123', 'ADMIN'),
@@ -108,10 +110,23 @@ CREATE TABLE IF NOT EXISTS public.notifications (
     type TEXT NOT NULL,
     title TEXT NOT NULL,
     message TEXT NOT NULL,
-    "receiptId" UUID REFERENCES public.receipts(id) ON DELETE CASCADE,
-    "approvalId" UUID REFERENCES public.pending_approvals(id) ON DELETE CASCADE,
+    "receiptId" TEXT,
+    "approvalId" TEXT,
     "isRead" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 10. Table: push_subscriptions (For Web Push notifications when app is closed)
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    username TEXT NOT NULL DEFAULT 'all',
+    role TEXT NOT NULL DEFAULT 'ALL',
+    "userAgent" TEXT,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Performance B-Tree Indexes
@@ -136,3 +151,7 @@ CREATE INDEX IF NOT EXISTS pending_approvals_receiptId_idx ON public.pending_app
 CREATE INDEX IF NOT EXISTS notifications_recipient_idx ON public.notifications (recipient);
 CREATE INDEX IF NOT EXISTS notifications_isRead_idx ON public.notifications ("isRead");
 CREATE INDEX IF NOT EXISTS notifications_createdAt_idx ON public.notifications ("createdAt" DESC);
+CREATE INDEX IF NOT EXISTS push_subscriptions_username_idx ON public.push_subscriptions (username);
+CREATE INDEX IF NOT EXISTS push_subscriptions_role_idx ON public.push_subscriptions (role);
+CREATE INDEX IF NOT EXISTS push_subscriptions_endpoint_idx ON public.push_subscriptions (endpoint);
+

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest } from "@/lib/authHelper"
+import { sendWebPushNotification } from "@/lib/serverPush"
 
 export async function GET(req: NextRequest) {
   try {
@@ -72,17 +73,28 @@ export async function POST(req: NextRequest) {
       throw new Error(error.message)
     }
 
-    // Insert Notification for all admins
+    // Insert Notification for all admins & Send Web Push
     try {
+      const notifTitle = `Permintaan Verifikasi (${actionType})`
+      const notifMsg = `Admin ${adminUser} mengajukan permintaan verifikasi ${actionType}.`
+
       await supabase.from("notifications").insert({
         recipient: "all",
         sender: adminUser,
         type: "REQUEST",
-        title: `Permintaan Verifikasi (${actionType})`,
-        message: `Admin ${adminUser} mengajukan permintaan verifikasi ${actionType}.`,
+        title: notifTitle,
+        message: notifMsg,
         approvalId: newApproval.id,
         isRead: false,
       })
+
+      sendWebPushNotification({
+        title: notifTitle,
+        message: notifMsg,
+        url: "/",
+        recipientRole: "ADMIN",
+        excludeUsername: adminUser,
+      }).catch((pErr) => console.warn("[WebPush Error on Approval POST]:", pErr))
     } catch (nErr) {
       console.warn("Approval POST notification insert notice:", nErr)
     }

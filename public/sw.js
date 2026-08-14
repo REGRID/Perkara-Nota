@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nota-photo-v1';
+const CACHE_NAME = 'nota-photo-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/manifest.json',
@@ -54,30 +54,87 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Native PWA System Notification Handling
+// ==========================================
+// 🔔 WEB PUSH EVENT (When App/Browser is Closed)
+// ==========================================
+self.addEventListener('push', (event) => {
+  let data = {
+    title: 'Perkara Kopi',
+    message: 'Ada pemberitahuan baru di aplikasi Nota.',
+    url: '/',
+    tag: 'nota-push-' + Date.now(),
+    icon: '/icon-192.png',
+    badge: '/icon-192.png'
+  };
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json();
+      data = { ...data, ...parsed };
+    } catch (e) {
+      data.message = event.data.text();
+    }
+  }
+
+  const notificationTitle = data.title || 'Perkara Kopi';
+  const notificationOptions = {
+    body: data.message || data.body || 'Pemberitahuan baru',
+    icon: data.icon || '/icon-192.png',
+    badge: data.badge || '/icon-192.png',
+    vibrate: [300, 100, 300, 100, 300], // Strong vibration for mobile phones
+    tag: data.tag || 'nota-alert-' + Date.now(),
+    renotify: true,
+    requireInteraction: true,
+    data: {
+      url: data.url || '/'
+    },
+    actions: [
+      { action: 'open', title: 'Lihat Nota' }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(notificationTitle, notificationOptions)
+  );
+});
+
+// ==========================================
+// 👆 NOTIFICATION CLICK HANDLER
+// ==========================================
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) ? event.notification.data.url : '/';
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if (client.url && 'focus' in client) {
-          return client.focus();
+        if ('focus' in client) {
+          if (client.url && client.url.includes(self.location.origin)) {
+            return client.focus().then(() => {
+              if ('navigate' in client && targetUrl !== '/') {
+                return client.navigate(targetUrl);
+              }
+            });
+          }
         }
       }
       if (clients.openWindow) {
-        return clients.openWindow('/');
+        return clients.openWindow(targetUrl);
       }
     })
   );
 });
 
+// ==========================================
+// 💬 POST MESSAGE (In-App Foreground Trigger)
+// ==========================================
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'TRIGGER_NOTIFICATION') {
     const { title, options } = event.data;
     self.registration.showNotification(title, {
       icon: '/icon-192.png',
       badge: '/icon-192.png',
-      vibrate: [200, 100, 200],
+      vibrate: [300, 100, 300],
       tag: 'nota-photo-notification',
       renotify: true,
       ...options

@@ -9,6 +9,10 @@ import {
   requestNotificationPermission,
   sendNativeOSNotification,
   testNativeOSNotification,
+  registerPushSubscription,
+  isPushSubscribed,
+  unsubscribePushNotifications,
+  testBackgroundPushNotification,
   NotificationSettings,
 } from "@/lib/pwaNotification"
 
@@ -25,6 +29,10 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
 
   // Notification Permission State
   const [permState, setPermState] = useState<string>("default")
+  const [isSubscribed, setIsSubscribed] = useState<boolean>(false)
+  const [isRegisteringPush, setIsRegisteringPush] = useState<boolean>(false)
+  const [countdown, setCountdown] = useState<number>(0)
+  const [testMsg, setTestMsg] = useState<string>("")
   const [notifySettings, setNotifySettings] = useState<NotificationSettings>({
     osPushEnabled: true,
     newReceiptEnabled: true,
@@ -35,8 +43,24 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
     if (isOpen) {
       setPermState(getNotificationPermissionStatus())
       setNotifySettings(getNotificationSettings())
+      isPushSubscribed().then(setIsSubscribed)
     }
   }, [isOpen])
+
+  // Countdown timer effect for push test
+  useEffect(() => {
+    if (countdown <= 0) return
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [countdown])
 
   // Change Password State
   const [oldPassword, setOldPassword] = useState("")
@@ -175,62 +199,113 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
         {/* Tab Content: Notifikasi (PWA OS System Push Settings) */}
         {activeTab === "notification" && (
           <div className="space-y-4 animate-in fade-in duration-150">
-            {/* Status Card */}
-            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2 text-xs">
+            {/* Background Push Status Card */}
+            <div className="p-4 bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-3xl border border-slate-700 shadow-md space-y-3">
               <div className="flex items-center justify-between">
-                <span className="font-extrabold text-slate-800 flex items-center gap-1.5">
-                  <Bell className="w-4 h-4 text-amber-500" /> Status Izin Browser / OS
+                <span className="font-black text-sm flex items-center gap-2 text-white">
+                  <Bell className="w-4 h-4 text-emerald-400 animate-bounce" /> Push HP Latar Belakang
                 </span>
-                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                  permState === "granted"
-                    ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                    : permState === "denied"
-                    ? "bg-red-100 text-red-800 border border-red-200"
-                    : "bg-amber-100 text-amber-800 border border-amber-200"
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  isSubscribed && permState === "granted"
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                    : permState === "granted"
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                    : "bg-red-500/20 text-red-300 border border-red-500/40"
                 }`}>
-                  {permState === "granted"
-                    ? "Aktif (Granted)"
-                    : permState === "denied"
-                    ? "Diblokir (Denied)"
+                  {isSubscribed && permState === "granted"
+                    ? "✓ Siap (HP Tertutup)"
+                    : permState === "granted"
+                    ? "Izin Aktif (Belum Terhubung)"
                     : "Belum Diizinkan"}
                 </span>
               </div>
 
-              <p className="text-[11.5px] text-slate-600 leading-relaxed">
-                Notifikasi sistem akan muncul sebagai pop-up banner di layar HP Android/iOS atau Windows bahkan saat aplikasi berjalan di latar belakang.
+              <p className="text-[11.5px] text-slate-300 leading-relaxed">
+                Fitur ini mengirimkan notifikasi langsung ke bilah notifikasi & layar kunci HP Android / iPhone Anda melalui <strong>Web Push Protocol</strong>, bahkan saat aplikasi <strong>ditutup total</strong> atau layar HP dikunci.
               </p>
 
-              <div className="flex items-center gap-2 pt-1 border-t border-slate-200/60 flex-wrap">
-                {permState !== "granted" && (
+              {/* Action Buttons */}
+              <div className="space-y-2 pt-1">
+                {(!isSubscribed || permState !== "granted") ? (
                   <button
                     type="button"
+                    disabled={isRegisteringPush}
                     onClick={async () => {
-                      const granted = await requestNotificationPermission()
+                      setIsRegisteringPush(true)
+                      const res = await registerPushSubscription(
+                        currentAdminUser,
+                        isKaryawan ? "KARYAWAN" : "ADMIN"
+                      )
+                      setIsRegisteringPush(false)
                       setPermState(getNotificationPermissionStatus())
-                      if (granted) {
-                        sendNativeOSNotification("Notifikasi Berhasil Diaktifkan", "Anda akan menerima pemberitahuan setiap ada nota baru atau permintaan persetujuan.")
+                      const subStatus = await isPushSubscribed()
+                      setIsSubscribed(subStatus)
+                      if (res.success) {
+                        alert("Berhasil! Notifikasi latar belakang telah aktif untuk perangkat ini.")
+                      } else {
+                        alert(`Perhatian: ${res.error || "Gagal mengaktifkan notifikasi latar belakang."}`)
                       }
                     }}
-                    className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-extrabold text-xs transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
+                    className="w-full py-2.5 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-slate-950 font-black text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <ShieldCheck className="w-4 h-4" /> Izinkan Notifikasi Pop-up HP
+                    {isRegisteringPush ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-4 h-4" />
+                    )}
+                    Paksa Aktifkan Notifikasi HP (Saat Ditutup)
                   </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={countdown > 0}
+                      onClick={async () => {
+                        setCountdown(5)
+                        setTestMsg("Kunci layar HP atau tutup browser sekarang dalam 5 detik...")
+                        await testBackgroundPushNotification(5)
+                      }}
+                      className="flex-1 py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-xs transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      {countdown > 0 ? `Menunggu (${countdown}s)... Kunci HP!` : "⏱️ Tes HP Tertutup (5s)"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await unsubscribePushNotifications()
+                        setIsSubscribed(false)
+                        alert("Langganan push untuk perangkat ini telah dinonaktifkan.")
+                      }}
+                      className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-red-400 font-bold text-xs transition-all cursor-pointer border border-slate-700"
+                    >
+                      Putus
+                    </button>
+                  </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await testNativeOSNotification(
-                      "Pengujian Notifikasi Sistem",
-                      "Sistem notifikasi HP & Windows Perkara Nota beroperasi dengan baik."
-                    )
-                    setPermState(getNotificationPermissionStatus())
-                  }}
-                  className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <Zap className="w-4 h-4 text-amber-400" /> Uji Notifikasi Native
-                </button>
+                {countdown > 0 && (
+                  <div className="p-2.5 bg-amber-500/20 border border-amber-500/40 rounded-xl text-amber-200 text-[11px] font-bold text-center animate-pulse">
+                    🔔 Notifikasi akan dikirim dalam {countdown} detik! Segera kunci layar HP Anda untuk menguji.
+                  </div>
+                )}
               </div>
+            </div>
+
+            {/* Quick Operating System Guide */}
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2 text-xs">
+              <span className="font-extrabold text-slate-800 block text-[11.5px] uppercase tracking-wider">
+                Panduan Agar Notifikasi Selalu Tembus di HP:
+              </span>
+              <ul className="space-y-1.5 text-slate-600 text-[11px] list-disc list-inside">
+                <li>
+                  <strong>Android:</strong> Pastikan Chrome/browser tidak masuk ke mode <em>Hemat Daya Ekstrem (Battery Optimization)</em> agar notifikasi tidak tertunda oleh OS Android.
+                </li>
+                <li>
+                  <strong>iPhone (iOS 16.4+):</strong> Buka di Safari, ketuk tombol <em>Bagikan (Share)</em> &gt; <em>Tambahkan ke Layar Utama (Add to Home Screen)</em>, lalu buka dari ikon Layar Utama dan izinkan notifikasi.
+                </li>
+              </ul>
             </div>
 
             {/* Toggle Preferences */}

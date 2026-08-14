@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest } from "@/lib/authHelper"
+import { sendWebPushNotification } from "@/lib/serverPush"
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -54,18 +55,29 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       throw new Error(error.message)
     }
 
-    // Insert Notification for all admins
+    // Insert Notification for all admins & Trigger Web Push
     try {
+      const notifTitle = "Permintaan Edit Nota"
+      const notifMsg = `Admin ${adminUser} mengajukan perubahan data nota "${body.merchantName || 'Nota'}".`
+
       await supabase.from("notifications").insert({
         recipient: "all",
         sender: adminUser,
         type: "REQUEST",
-        title: "Permintaan Edit Nota",
-        message: `Admin ${adminUser} mengajukan perubahan data nota "${body.merchantName || 'Nota'}".`,
+        title: notifTitle,
+        message: notifMsg,
         approvalId: approval.id,
         receiptId: id,
         isRead: false,
       })
+
+      sendWebPushNotification({
+        title: notifTitle,
+        message: notifMsg,
+        url: "/",
+        recipientRole: "ADMIN",
+        excludeUsername: adminUser,
+      }).catch((pErr) => console.warn("[WebPush Error on Edit Request]:", pErr))
     } catch (nErr) {
       console.warn("Edit request notification insert notice:", nErr)
     }
@@ -103,18 +115,29 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       throw new Error(error.message)
     }
 
-    // Insert Notification for all admins
+    // Insert Notification for all admins & Trigger Web Push
     try {
+      const notifTitle = "Permintaan Hapus Nota"
+      const notifMsg = `Admin ${adminUser} mengajukan penghapusan nota.`
+
       await supabase.from("notifications").insert({
         recipient: "all",
         sender: adminUser,
         type: "REQUEST",
-        title: "Permintaan Hapus Nota",
-        message: `Admin ${adminUser} mengajukan penghapusan nota.`,
+        title: notifTitle,
+        message: notifMsg,
         approvalId: approval.id,
         receiptId: id,
         isRead: false,
       })
+
+      sendWebPushNotification({
+        title: notifTitle,
+        message: notifMsg,
+        url: "/",
+        recipientRole: "ADMIN",
+        excludeUsername: adminUser,
+      }).catch((pErr) => console.warn("[WebPush Error on Delete Request]:", pErr))
     } catch (nErr) {
       console.warn("Delete request notification insert notice:", nErr)
     }
