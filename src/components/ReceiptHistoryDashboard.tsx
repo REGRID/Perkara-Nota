@@ -194,7 +194,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     if (selectedReceipt && selectedReceipt.id) {
       if (!selectedReceipt.imageUrl) {
         setIsLoadingDetailImage(true)
-        fetch(`/api/receipts/${selectedReceipt.id}`)
+        fetch(`/api/receipts/${selectedReceipt.id}?_t=${Date.now()}`, { cache: "no-store" })
           .then((res) => (res.ok ? res.json() : null))
           .then((data) => {
             if (data && data.imageUrl) {
@@ -504,7 +504,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   const fetchAllReceipts = async (silent = false) => {
     if (!silent && allReceipts.length === 0) setIsInitialLoading(true)
     try {
-      const res = await fetch("/api/receipts")
+      const res = await fetch(`/api/receipts?_t=${Date.now()}`, { cache: "no-store" })
       if (res.ok) {
         const data = await res.json()
         setAllReceipts(data)
@@ -3542,7 +3542,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                             type="button"
                             onClick={() => {
                               setIsLoadingDetailImage(true)
-                              fetch(`/api/receipts/${selectedReceipt.id}`)
+                              fetch(`/api/receipts/${selectedReceipt.id}?_t=${Date.now()}`, { cache: "no-store" })
                                 .then((res) => (res.ok ? res.json() : null))
                                 .then((data) => {
                                   if (data && data.imageUrl) {
