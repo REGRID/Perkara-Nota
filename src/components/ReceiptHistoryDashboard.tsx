@@ -51,6 +51,9 @@ import {
   AlertCircle,
   ExternalLink,
   ArrowUpDown,
+  CreditCard,
+  DollarSign,
+  FileText,
 } from "lucide-react"
 import {
   ResponsiveContainer,
@@ -4226,61 +4229,202 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                               ) : (
                                 <div className="p-3 bg-slate-50 rounded-xl text-center text-xs text-slate-600 border border-slate-200/80 flex items-center justify-between">
                                   <span>Target Nota: <strong>{merchantNameDisplay}</strong></span>
-                                  <span className="font-mono font-bold text-emerald-700">Rp {amountDisplay.toLocaleString("id-ID")}</span>
                                 </div>
                               )}
                             </div>
 
-                            {/* RINCIAN PERUBAHAN EDIT DATA (SIDE-BY-SIDE DIFF) */}
-                            {reqItem.actionType === "EDIT" && (
-                              <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
-                                <span className="font-black text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5 border-b border-slate-100 pb-1">
-                                  <Edit className="w-3.5 h-3.5 text-blue-600" /> Perbandingan Perubahan Data Edit:
-                                </span>
+                            {/* RINCIAN PERUBAHAN EDIT DATA (HANYA FIELD YANG BERUBAH) */}
+                            {reqItem.actionType === "EDIT" && (() => {
+                              const oldMerchant = (targetReceipt?.merchantName || "").trim()
+                              const newMerchant = (payloadObj.merchantName || "").trim()
+                              const merchantChanged = Boolean(newMerchant && oldMerchant !== newMerchant)
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                                  {/* Column Left: Data Saat Ini */}
-                                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                                    <span className="font-extrabold text-slate-500 uppercase text-[10px] block">Data Saat Ini (Database):</span>
-                                    <p><strong>Toko:</strong> {targetReceipt?.merchantName || "-"}</p>
-                                    <p><strong>Tanggal:</strong> {targetReceipt?.date || "-"}</p>
-                                    <p><strong>Total:</strong> Rp {Number(targetReceipt?.totalAmount || 0).toLocaleString("id-ID")}</p>
-                                    <p><strong>Metode:</strong> {targetReceipt?.paymentMethod || "Cash"}</p>
-                                    <p><strong>Status:</strong> {targetReceipt?.paymentStatus || "Lunas"}</p>
-                                    {targetReceipt?.items && (
-                                      <div className="pt-1 border-t border-slate-200">
-                                        <span className="font-bold block text-[10px]">Item Produk ({targetReceipt.items.length}):</span>
-                                        <ul className="list-disc pl-3 text-[10.5px] space-y-0.5 text-slate-600">
-                                          {targetReceipt.items.map((i: any, idx: number) => (
-                                            <li key={idx}>{i.name} (x{i.quantity}) — Rp {Number(i.price * i.quantity).toLocaleString("id-ID")}</li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
+                              const oldDate = (targetReceipt?.date || "").trim()
+                              const newDate = (payloadObj.date || "").trim()
+                              const dateChanged = Boolean(newDate && oldDate !== newDate)
+
+                              const oldTotal = Number(targetReceipt?.totalAmount || 0)
+                              const newTotal = Number(payloadObj.totalAmount || 0)
+                              const totalChanged = payloadObj.totalAmount !== undefined && oldTotal !== newTotal
+
+                              const oldMethod = (targetReceipt?.paymentMethod || "Cash").trim()
+                              const newMethod = (payloadObj.paymentMethod || "").trim()
+                              const methodChanged = Boolean(newMethod && oldMethod !== newMethod)
+
+                              const oldStatus = (targetReceipt?.paymentStatus || "Lunas").trim()
+                              const newStatus = (payloadObj.paymentStatus || "").trim()
+                              const statusChanged = Boolean(newStatus && oldStatus !== newStatus)
+
+                              const oldNote = (targetReceipt?.note || "").trim()
+                              const newNote = (payloadObj.note || "").trim()
+                              const noteChanged = payloadObj.note !== undefined && oldNote !== newNote
+
+                              const oldItems: any[] = targetReceipt?.items || []
+                              const newItems: any[] = payloadObj.items && Array.isArray(payloadObj.items) ? payloadObj.items : []
+                              const itemsChanged = newItems.length > 0 && (
+                                oldItems.length !== newItems.length ||
+                                JSON.stringify(oldItems.map((i) => ({ n: i.name, q: Number(i.quantity), p: Number(i.price) }))) !==
+                                JSON.stringify(newItems.map((i) => ({ n: i.name, q: Number(i.quantity || 1), p: Number(i.price || 0) })))
+                              )
+
+                              const hasAnyChange = merchantChanged || dateChanged || totalChanged || methodChanged || statusChanged || noteChanged || itemsChanged
+
+                              return (
+                                <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 text-xs shadow-2xs">
+                                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                    <span className="font-extrabold text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                                      <Edit className="w-3.5 h-3.5 text-blue-600" /> Perubahan Data yang Diedit:
+                                    </span>
+                                    <span className="text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                      Hanya Menampilkan Data yang Berubah
+                                    </span>
                                   </div>
 
-                                  {/* Column Right: Usulan Data Baru */}
-                                  <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 space-y-1 text-emerald-950">
-                                    <span className="font-extrabold text-emerald-700 uppercase text-[10px] block">Usulan Data Baru (Draft):</span>
-                                    <p><strong>Toko:</strong> <span className="font-bold text-emerald-900">{payloadObj.merchantName || "-"}</span></p>
-                                    <p><strong>Tanggal:</strong> <span className="font-bold text-emerald-900">{payloadObj.date || "-"}</span></p>
-                                    <p><strong>Total Baru:</strong> <span className="font-mono font-bold text-emerald-700">Rp {Number(payloadObj.totalAmount || 0).toLocaleString("id-ID")}</span></p>
-                                    <p><strong>Metode:</strong> {payloadObj.paymentMethod || "Cash"}</p>
-                                    <p><strong>Status:</strong> {payloadObj.paymentStatus || "Lunas"}</p>
-                                    {payloadObj.items && Array.isArray(payloadObj.items) && (
-                                      <div className="pt-1 border-t border-emerald-200">
-                                        <span className="font-bold block text-[10px]">Item Produk Baru ({payloadObj.items.length}):</span>
-                                        <ul className="list-disc pl-3 text-[10.5px] space-y-0.5 text-emerald-900 font-medium">
-                                          {payloadObj.items.map((i: any, idx: number) => (
-                                            <li key={idx}>{i.name} (x{i.quantity || 1}) — Rp {Number((i.price || 0) * (i.quantity || 1)).toLocaleString("id-ID")}</li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-                                  </div>
+                                  {!hasAnyChange ? (
+                                    <div className="p-3 bg-slate-50 rounded-xl text-center text-[11.5px] text-slate-500 font-medium border border-slate-200/80">
+                                      Seluruh data identik / tidak ditemukan perbedaan field data utama.
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-2 text-[11.5px]">
+                                      {/* Tanggal */}
+                                      {dateChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <Calendar className="w-3.5 h-3.5 text-amber-700" /> Tanggal Transaksi:
+                                          </span>
+                                          <div className="flex items-center gap-2 font-mono">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              {oldDate || "-"}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300 text-[11px]">
+                                              {newDate}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Toko / Merchant */}
+                                      {merchantChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <Store className="w-3.5 h-3.5 text-amber-700" /> Nama Toko / Merchant:
+                                          </span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              {oldMerchant || "-"}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300 text-[11px]">
+                                              {newMerchant}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Total Nominal */}
+                                      {totalChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <DollarSign className="w-3.5 h-3.5 text-amber-700" /> Total Nominal:
+                                          </span>
+                                          <div className="flex items-center gap-2 font-mono">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              Rp {oldTotal.toLocaleString("id-ID")}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black border border-emerald-300 text-[11.5px]">
+                                              Rp {newTotal.toLocaleString("id-ID")}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Metode Pembayaran */}
+                                      {methodChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <CreditCard className="w-3.5 h-3.5 text-amber-700" /> Metode Pembayaran:
+                                          </span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              {oldMethod}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300 text-[11px]">
+                                              {newMethod}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Status Pembayaran */}
+                                      {statusChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <ShieldCheck className="w-3.5 h-3.5 text-amber-700" /> Status Pembayaran:
+                                          </span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              {oldStatus}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300 text-[11px]">
+                                              {newStatus}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Catatan */}
+                                      {noteChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-start justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <FileText className="w-3.5 h-3.5 text-amber-700" /> Catatan:
+                                          </span>
+                                          <div className="flex items-center gap-2 flex-1 justify-end">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              {oldNote || "(Kosong)"}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300 text-[11px]">
+                                              {newNote || "(Dikosongkan)"}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Rincian Item Produk */}
+                                      {itemsChanged && (
+                                        <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 text-[11px]">
+                                            <Tag className="w-3.5 h-3.5 text-amber-700" /> Rincian Item Produk Diperbarui ({newItems.length} Item Baru):
+                                          </span>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10.5px]">
+                                            <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1">
+                                              <span className="font-bold text-slate-400 uppercase text-[9.5px] block">Item Sebelum Edit:</span>
+                                              <ul className="list-disc pl-3 space-y-0.5 text-slate-500 line-through">
+                                                {oldItems.map((i, idx) => (
+                                                  <li key={idx}>{i.name} (x{i.quantity}) — Rp {Number((i.price || 0) * (i.quantity || 1)).toLocaleString("id-ID")}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                            <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 space-y-1">
+                                              <span className="font-bold text-emerald-800 uppercase text-[9.5px] block">Item Usulan Baru:</span>
+                                              <ul className="list-disc pl-3 space-y-0.5 text-emerald-950 font-bold">
+                                                {newItems.map((i, idx) => (
+                                                  <li key={idx}>{i.name} (x{i.quantity || 1}) — Rp {Number((i.price || 0) * (i.quantity || 1)).toLocaleString("id-ID")}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
-                              </div>
-                            )}
+                              )
+                            })()}
 
                             {(reqItem.actionType === "SETTLE" || reqItem.actionType === "BULK_SETTLE") && (
                               <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-xs text-emerald-950 space-y-2">
