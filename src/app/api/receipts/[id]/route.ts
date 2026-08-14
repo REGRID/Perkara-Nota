@@ -10,25 +10,55 @@ import { compressBase64Image } from "@/lib/imageCompressor"
 const SINGLE_RECEIPT_SELECT =
   "id, merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity)"
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> | { id: string } }) {
   try {
-    const { id } = await params
-    const { data: receipt, error } = await supabase
+    const resolvedParams = params instanceof Promise ? await params : params
+    const id = resolvedParams?.id
+
+    if (!id) {
+      return NextResponse.json({ error: "ID nota tidak valid" }, { status: 400 })
+    }
+
+    // 1. Primary Query with relational items
+    const { data: receipts, error } = await supabase
       .from("receipts")
       .select(SINGLE_RECEIPT_SELECT)
       .eq("id", id)
-      .single()
+      .limit(1)
 
-    if (error || !receipt) {
-      return NextResponse.json({ error: "Nota tidak ditemukan" }, { status: 404 })
+    let receipt = receipts && receipts.length > 0 ? receipts[0] : null
+
+    // 2. Fallback Query without relational items if needed
+    if (!receipt || error) {
+      const { data: directData } = await supabase
+        .from("receipts")
+        .select("id, merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt")
+        .eq("id", id)
+        .limit(1)
+
+      if (directData && directData.length > 0) {
+        const { data: itemsData } = await supabase
+          .from("receipt_items")
+          .select("id, name, category, subCategory, price, quantity")
+          .eq("receiptId", id)
+
+        receipt = {
+          ...directData[0],
+          items: itemsData || [],
+        }
+      }
+    }
+
+    if (!receipt) {
+      return NextResponse.json({ error: "Nota tidak ditemukan di database" }, { status: 404 })
     }
 
     const res = NextResponse.json(receipt)
-    res.headers.set("Cache-Control", "public, s-maxage=10, stale-while-revalidate=60")
+    res.headers.set("Cache-Control", "public, s-maxage=5, stale-while-revalidate=30")
     return res
   } catch (error: any) {
     console.error("GET Single Receipt Error:", error)
-    return NextResponse.json({ error: "Gagal memuat detail nota" }, { status: 500 })
+    return NextResponse.json({ error: error.message || "Gagal memuat detail nota" }, { status: 500 })
   }
 }
 
