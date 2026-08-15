@@ -301,7 +301,7 @@ export function VerificationSplitScreen({
   const [items, setItems] = useState<ParsedItem[]>(initialResult.items || [])
   const [taxAmount, setTaxAmount] = useState<number | "">(initialResult.taxAmount ?? 0)
   const [paymentMethod, setPaymentMethod] = useState<string>(existingPaymentMethod || "Cash")
-  const [paymentStatus, setPaymentStatus] = useState<string>(existingPaymentStatus || "Sudah Dilunasi")
+  const [paymentStatus, setPaymentStatus] = useState<string>(existingPaymentStatus || "Lunas")
   const [paidByPerson, setPaidByPerson] = useState<string>(initialPaidBy)
   const [note, setNote] = useState(initialCleanNote)
   const [isSaving, setIsSaving] = useState(false)
@@ -336,7 +336,7 @@ export function VerificationSplitScreen({
       setPaymentStatus("Tempo (Hutang Supplier)")
       setPaidByPerson("")
     } else {
-      setPaymentStatus("Sudah Dilunasi")
+      setPaymentStatus("Lunas")
       setPaidByPerson("")
     }
   }

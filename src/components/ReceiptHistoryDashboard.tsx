@@ -49,6 +49,11 @@ import {
   Image as ImageIcon,
   Bell,
   AlertCircle,
+  ExternalLink,
+  ArrowUpDown,
+  CreditCard,
+  DollarSign,
+  FileText,
 } from "lucide-react"
 import {
   ResponsiveContainer,
@@ -67,6 +72,7 @@ import {
 import { ImageInteractiveLightbox } from "@/components/ImageInteractiveLightbox"
 import { getAuthHeaders } from "@/lib/authClient"
 import { requestNotificationPermission, sendNativeOSNotification } from "@/lib/pwaNotification"
+import { compressImageBase64 } from "@/lib/ocr"
 
 export interface ReceiptItem {
   id: string
@@ -191,7 +197,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     if (selectedReceipt && selectedReceipt.id) {
       if (!selectedReceipt.imageUrl) {
         setIsLoadingDetailImage(true)
-        fetch(`/api/receipts/${selectedReceipt.id}`)
+        fetch(`/api/receipts/${selectedReceipt.id}?_t=${Date.now()}`, { cache: "no-store" })
           .then((res) => (res.ok ? res.json() : null))
           .then((data) => {
             if (data && data.imageUrl) {
@@ -220,6 +226,56 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   }, [selectedReceipt?.id])
 
   const [deletingReceipt, setDeletingReceipt] = useState<ReceiptData | null>(null)
+  const [revealedHeavyImages, setRevealedHeavyImages] = useState<Record<string, boolean>>({})
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
+  const detailFileInputRef = useRef<HTMLInputElement>(null)
+
+  const getImageSizeKb = (imageStr?: string | null): number => {
+    if (!imageStr) return 0
+    if (imageStr.includes("base64,")) {
+      const b64Data = imageStr.split("base64,")[1] || ""
+      return Math.round((b64Data.length * 0.75) / 1024)
+    }
+    return Math.round(imageStr.length / 1024)
+  }
+
+  const handleUploadReceiptPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedReceipt) return
+    setIsUploadingPhoto(true)
+    try {
+      const reader = new FileReader()
+      reader.onload = async (ev) => {
+        const rawBase64 = ev.target?.result as string
+        const compressed = await compressImageBase64(rawBase64, 1400, 1400, 0.8)
+
+        const res = await fetch(`/api/receipts/${selectedReceipt.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({ imageUrl: compressed }),
+        })
+
+        if (res.ok) {
+          const data = await res.json()
+          const newUrl = data.receipt?.imageUrl || compressed
+          setSelectedReceipt((prev) => (prev && prev.id === selectedReceipt.id ? { ...prev, imageUrl: newUrl } : prev))
+          setAllReceipts((prev) => prev.map((r) => (r.id === selectedReceipt.id ? { ...r, imageUrl: newUrl } : r)))
+          alert("Foto nota berhasil diunggah dan disimpan!")
+        } else {
+          alert("Gagal mengunggah foto nota ke server.")
+        }
+        setIsUploadingPhoto(false)
+      }
+      reader.readAsDataURL(file)
+    } catch (err) {
+      console.error("Upload receipt photo error:", err)
+      alert("Terjadi kesalahan saat memproses gambar.")
+      setIsUploadingPhoto(false)
+    }
+  }
 
   // Toggle Analytics Charts display & Chart View Type
   const [showCharts, setShowCharts] = useState(false)
@@ -240,6 +296,9 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   const [dateRangeFilter, setDateRangeFilter] = useState<"all" | "today" | "7days" | "month" | "custom">("all")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+
+  // Sort Option State
+  const [sortBy, setSortBy] = useState<"date-desc" | "date-asc" | "amount-desc" | "amount-asc" | "merchant-asc" | "merchant-desc">("date-desc")
 
   // Backup & Restore State
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -316,6 +375,56 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       }
     } catch (e) {
       console.error("Fetch notifications error:", e)
+    }
+  }
+
+  // Handle Single Notification Item Click (Mark Read + Navigate to Receipt Detail / Approval Modal)
+  const handleNotificationClick = async (n: any) => {
+    if (!n.isRead) {
+      try {
+        await fetch("/api/notifications", {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ id: n.id }),
+        })
+        setNotifications((prev) =>
+          prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
+        )
+        setUnreadNotificationCount((prev) => Math.max(0, prev - 1))
+      } catch (e) {
+        console.error("Mark single notification read error:", e)
+      }
+    }
+
+    setShowNotificationsModal(false)
+
+    // Check if notification is a pending approval request
+    if (n.approvalId) {
+      const hasPendingApproval = pendingApprovals.some((app) => app.id === n.approvalId)
+      if (hasPendingApproval) {
+        setShowApprovalModal(true)
+        return
+      }
+    }
+
+    // Direct to target receipt detail
+    let targetReceipt: ReceiptData | undefined
+    if (n.receiptId) {
+      targetReceipt = allReceipts.find((r) => r.id === n.receiptId)
+    }
+
+    if (!targetReceipt && n.message) {
+      const match = n.message.match(/"([^"]+)"/)
+      if (match && match[1]) {
+        const merchantQ = match[1].trim().toLowerCase()
+        targetReceipt = allReceipts.find((r) => r.merchantName.toLowerCase().includes(merchantQ))
+      }
+    }
+
+    if (targetReceipt) {
+      setSelectedReceipt(targetReceipt)
+    } else if (n.type === "REQUEST" || n.approvalId) {
+      setShowApprovalModal(true)
     }
   }
 
@@ -398,7 +507,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   const fetchAllReceipts = async (silent = false) => {
     if (!silent && allReceipts.length === 0) setIsInitialLoading(true)
     try {
-      const res = await fetch("/api/receipts")
+      const res = await fetch(`/api/receipts?_t=${Date.now()}`, { cache: "no-store" })
       if (res.ok) {
         const data = await res.json()
         setAllReceipts(data)
@@ -482,7 +591,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
         body: JSON.stringify({
           receiptId: receipt.id,
           actionType: "SETTLE",
-          payload: { id: receipt.id, paymentStatus: "Lunas" },
+          payload: { id: receipt.id, paymentStatus: "Sudah Dilunasi" },
         }),
       })
       const data = await res.json()
@@ -591,13 +700,13 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     fetchPendingApprovals()
     fetchNotifications()
 
-    // Smart Polling: Only poll when document tab is active to save bandwidth & database connections
+    // Smart Polling: Poll at 25s intervals only when tab is active to heavily conserve Supabase Egress
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
         fetchPendingApprovals()
         fetchNotifications()
       }
-    }, 10000)
+    }, 25000)
 
     // Instant Sync when tab becomes visible again
     const handleVisibilityChange = () => {
@@ -645,13 +754,35 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     return st === "lunas" || st.includes("sudah")
   }
 
-  // SEAMLESS INSTANT CLIENT-SIDE FILTERING (Category + Sub-Category + Search + Date Range + Status)
+  // Helper to determine effective payment status display ("Lunas" vs "Sudah Dilunasi")
+  const getEffectivePaymentStatus = (receipt: { paymentStatus?: string | null; paymentMethod?: string | null; note?: string | null }): string => {
+    const status = receipt.paymentStatus || "Lunas"
+    if (status.toLowerCase().includes("belum") || status.toLowerCase().includes("tempo")) {
+      return status
+    }
+    const method = (receipt.paymentMethod || "").toLowerCase()
+    const noteText = (receipt.note || "").toLowerCase()
+    const isTalanganOrHutang =
+      method.includes("pribadi") ||
+      method.includes("talangan") ||
+      method.includes("hutang") ||
+      method.includes("supplier") ||
+      noteText.includes("[dibayar oleh:")
+
+    if (isTalanganOrHutang) {
+      return "Sudah Dilunasi"
+    }
+
+    return "Lunas"
+  }
+
+  // SEAMLESS INSTANT CLIENT-SIDE FILTERING & SORTING (Category + Sub-Category + Search + Date Range + Status + Sort)
   const filteredReceipts = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0]
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
     const currentMonthStr = todayStr.substring(0, 7) // YYYY-MM
 
-    return allReceipts.filter((r) => {
+    const filtered = allReceipts.filter((r) => {
       // 1. Date Range Filter
       if (dateRangeFilter === "today" && r.date !== todayStr) return false
       if (dateRangeFilter === "7days" && r.date < sevenDaysAgo) return false
@@ -697,8 +828,11 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       }
 
       // 5. Payment Status Filter
-      if (selectedStatusFilter === "Sudah Dilunasi") {
-        if (!isReceiptSettled(r.paymentStatus)) return false
+      const effectiveStatus = getEffectivePaymentStatus(r)
+      if (selectedStatusFilter === "Lunas") {
+        if (effectiveStatus !== "Lunas") return false
+      } else if (selectedStatusFilter === "Sudah Dilunasi") {
+        if (effectiveStatus !== "Sudah Dilunasi") return false
       } else if (selectedStatusFilter === "Belum Direimburse / Tempo") {
         if (isReceiptSettled(r.paymentStatus)) return false
       }
@@ -713,6 +847,33 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
       return true
     })
+
+    // 7. Sort Filtered Receipts
+    return filtered.sort((a, b) => {
+      if (sortBy === "date-desc") {
+        const dateComp = (b.date || "").localeCompare(a.date || "")
+        if (dateComp !== 0) return dateComp
+        return (b.createdAt || "").localeCompare(a.createdAt || "")
+      }
+      if (sortBy === "date-asc") {
+        const dateComp = (a.date || "").localeCompare(b.date || "")
+        if (dateComp !== 0) return dateComp
+        return (a.createdAt || "").localeCompare(b.createdAt || "")
+      }
+      if (sortBy === "amount-desc") {
+        return (b.totalAmount || 0) - (a.totalAmount || 0)
+      }
+      if (sortBy === "amount-asc") {
+        return (a.totalAmount || 0) - (b.totalAmount || 0)
+      }
+      if (sortBy === "merchant-asc") {
+        return (a.merchantName || "").localeCompare(b.merchantName || "", "id", { sensitivity: "base" })
+      }
+      if (sortBy === "merchant-desc") {
+        return (b.merchantName || "").localeCompare(a.merchantName || "", "id", { sensitivity: "base" })
+      }
+      return 0
+    })
   }, [
     allReceipts,
     dateRangeFilter,
@@ -725,12 +886,13 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     subQ,
     selectedStatusFilter,
     selectedPersonFilter,
+    sortBy,
   ])
 
-  // Reset to Page 1 when filters change
+  // Reset to Page 1 when filters or sort change
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, dateRangeFilter, startDate, endDate, selectedCategory, selectedSubCategory, selectedStatusFilter, selectedPersonFilter])
+  }, [searchQuery, dateRangeFilter, startDate, endDate, selectedCategory, selectedSubCategory, selectedStatusFilter, selectedPersonFilter, sortBy])
 
   // Build lookup map for receipts that have pending approval requests
   const pendingApprovalMap = useMemo(() => {
@@ -833,7 +995,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       const res = await fetch("/api/receipts", {
         method: "PATCH",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ ids: selectedReceiptIds, paymentStatus: "Lunas" }),
+        body: JSON.stringify({ ids: selectedReceiptIds, paymentStatus: "Sudah Dilunasi" }),
       })
 
       const data = await res.json()
@@ -844,7 +1006,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
         } else {
           setAllReceipts((prev) =>
             prev.map((r) =>
-              selectedReceiptIds.includes(r.id) ? { ...r, paymentStatus: "Lunas" } : r
+              selectedReceiptIds.includes(r.id) ? { ...r, paymentStatus: "Sudah Dilunasi" } : r
             )
           )
         }
@@ -1623,9 +1785,18 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             }`}
             title="Buka Pusat Notifikasi Aktivitas Admin"
           >
-            <Bell className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" /> Notifikasi
+            <div className="relative flex items-center justify-center">
+              <Bell className="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
+              {unreadNotificationCount > 0 && (
+                <span className="absolute -top-1 -right-1.5 flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 border border-slate-900"></span>
+                </span>
+              )}
+            </div>
+            <span>Notifikasi</span>
             {unreadNotificationCount > 0 && (
-              <span className="ml-0.5 px-1.5 py-0.5 bg-amber-400 text-slate-950 rounded-full text-[10px] font-black leading-none animate-bounce">
+              <span className="ml-0.5 px-1.5 py-0.5 bg-red-600 text-white rounded-full text-[10px] font-black leading-none shadow-xs">
                 {unreadNotificationCount}
               </span>
             )}
@@ -1980,7 +2151,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
       {/* SEARCH & FILTER BAR DIRECTLY ABOVE RECEIPTS HISTORY */}
       <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-2xs space-y-4">
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
           {/* Search Box Input */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -2002,25 +2173,50 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             )}
           </div>
 
-          {/* DATE RANGE FILTER DROPDOWN */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
-              <Calendar className="w-4 h-4 text-emerald-600" /> Periode:
-            </span>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* DATE RANGE FILTER DROPDOWN */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+                <Calendar className="w-4 h-4 text-emerald-600" /> Periode:
+              </span>
 
-            <div className="relative inline-block">
-              <select
-                value={dateRangeFilter}
-                onChange={(e) => setDateRangeFilter(e.target.value as any)}
-                className="appearance-none pl-3.5 pr-8 py-2 rounded-xl border border-slate-300 text-xs font-extrabold text-slate-800 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs cursor-pointer hover:border-slate-400 transition-colors"
-              >
-                <option value="all">Semua Waktu</option>
-                <option value="today">Hari Ini</option>
-                <option value="7days">7 Hari Terakhir</option>
-                <option value="month">Bulan Ini</option>
-                <option value="custom">Kustom Tanggal...</option>
-              </select>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <div className="relative inline-block">
+                <select
+                  value={dateRangeFilter}
+                  onChange={(e) => setDateRangeFilter(e.target.value as any)}
+                  className="appearance-none pl-3.5 pr-8 py-2 rounded-xl border border-slate-300 text-xs font-extrabold text-slate-800 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs cursor-pointer hover:border-slate-400 transition-colors"
+                >
+                  <option value="all">Semua Waktu</option>
+                  <option value="today">Hari Ini</option>
+                  <option value="7days">7 Hari Terakhir</option>
+                  <option value="month">Bulan Ini</option>
+                  <option value="custom">Kustom Tanggal...</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* SORT BY DROPDOWN */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+                <ArrowUpDown className="w-4 h-4 text-emerald-600" /> Urutkan:
+              </span>
+
+              <div className="relative inline-block">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="appearance-none pl-3.5 pr-8 py-2 rounded-xl border border-slate-300 text-xs font-extrabold text-slate-800 bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-2xs cursor-pointer hover:border-slate-400 transition-colors"
+                >
+                  <option value="date-desc">Tanggal Terbaru</option>
+                  <option value="date-asc">Tanggal Terlama</option>
+                  <option value="amount-desc">Nominal Tertinggi</option>
+                  <option value="amount-asc">Nominal Terendah</option>
+                  <option value="merchant-asc">Nama Toko (A - Z)</option>
+                  <option value="merchant-desc">Nama Toko (Z - A)</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
             </div>
           </div>
         </div>
@@ -2140,13 +2336,13 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 </button>
               )}
             </div>            <div className="flex items-center gap-1.5 overflow-x-auto">
-              {["Semua Status", "Sudah Dilunasi", "Belum Direimburse / Tempo"].map((statusOpt) => (
+              {["Semua Status", "Lunas", "Sudah Dilunasi", "Belum Direimburse / Tempo"].map((statusOpt) => (
                 <button
                   key={statusOpt}
                   type="button"
                   onClick={() => {
                     setSelectedStatusFilter(statusOpt)
-                    if (statusOpt === "Sudah Dilunasi") {
+                    if (statusOpt === "Sudah Dilunasi" || statusOpt === "Lunas") {
                       setSelectedPersonFilter("Semua Penanggung Jawab")
                     }
                   }}
@@ -2161,8 +2357,8 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
               ))}
             </div>
 
-            {/* Sub-Status: Penanggung Jawab / Talangan (Only shown if NOT filtered by Sudah Dilunasi) */}
-            {selectedStatusFilter !== "Sudah Dilunasi" && availablePersonNames.length > 0 && (
+            {/* Sub-Status: Penanggung Jawab / Talangan (Only shown if NOT filtered by Lunas/Sudah Dilunasi) */}
+            {selectedStatusFilter !== "Sudah Dilunasi" && selectedStatusFilter !== "Lunas" && availablePersonNames.length > 0 && (
               <div className="flex items-center gap-1.5 overflow-x-auto pt-1 bg-amber-50/60 p-2.5 rounded-2xl border border-amber-200/70 transition-all animate-in fade-in duration-150">
                 <span className="text-[11px] font-black text-amber-900 flex items-center gap-1 shrink-0 uppercase tracking-wider mr-1">
                   <User className="w-3.5 h-3.5 text-amber-600" /> SUB-STATUS (TALANGAN):
@@ -2501,16 +2697,21 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                               <CheckCircle2 className="w-3.5 h-3.5" /> Lunasi
                             </button>
                           ) : (
-                            <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] border shrink-0 ${
-                                receipt.paymentStatus === "Sudah Dilunasi"
-                                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                                  : "bg-green-50 text-green-800 border-green-200"
-                              }`}
-                            >
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              {receipt.paymentStatus === "Sudah Dilunasi" ? "Sudah Dilunasi" : "Lunas"}
-                            </span>
+                            (() => {
+                              const effSt = getEffectivePaymentStatus(receipt)
+                              return (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] border shrink-0 ${
+                                    effSt === "Sudah Dilunasi"
+                                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                      : "bg-green-50 text-green-800 border-green-200"
+                                  }`}
+                                >
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  {effSt}
+                                </span>
+                              )
+                            })()
                           )}
 
                           {onEditReceipt && (
@@ -3235,8 +3436,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
       {/* FULL RECEIPT DETAIL MODAL (SHOWS ALL ITEMS OF THE RECEIPT) */}
       {selectedReceipt && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div
+          onClick={() => setSelectedReceipt(null)}
+          className="fixed inset-0 z-[70] bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+          >
             <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2">
@@ -3262,56 +3469,126 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             </div>
 
             <div className="p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-12 gap-6">
-              <div
-                onClick={() => selectedReceipt.imageUrl && setLightboxImageUrl(selectedReceipt.imageUrl)}
-                className={`md:col-span-5 bg-slate-900 rounded-2xl p-4 flex items-center justify-center min-h-[300px] relative group ${
-                  selectedReceipt.imageUrl ? "cursor-zoom-in" : ""
-                }`}
-              >
-                {selectedReceipt.imageUrl ? (
-                  <>
-                    {/* eslint-disable-next-html-element */}
-                    <img
-                      src={selectedReceipt.imageUrl}
-                      alt="Original Receipt"
-                      className="max-h-[420px] w-auto object-contain rounded-xl shadow-lg group-hover:opacity-85 transition-opacity"
-                    />
-                    <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-2xs rounded-2xl">
-                      <span className="px-4 py-2 rounded-2xl bg-slate-900/90 text-white font-extrabold text-xs border border-slate-700 flex items-center gap-2 shadow-2xl">
-                        <Maximize2 className="w-4 h-4 text-emerald-400" /> Klik Untuk Pop-Up Lightbox Zoom
-                      </span>
-                    </div>
-                  </>
-                ) : isLoadingDetailImage ? (
-                  <div className="text-center text-emerald-400 space-y-2 p-6">
-                    <RefreshCw className="w-10 h-10 mx-auto animate-spin" />
-                    <p className="text-xs font-bold">Memuat foto nota fisik dari database...</p>
+              {(() => {
+                const imgSizeKb = getImageSizeKb(selectedReceipt.imageUrl)
+                const isHeavy = imgSizeKb > 200
+                const isRevealed = !isHeavy || Boolean(revealedHeavyImages[selectedReceipt.id])
+
+                return (
+                  <div
+                    onClick={() => {
+                      if (selectedReceipt.imageUrl && isRevealed) {
+                        setLightboxImageUrl(selectedReceipt.imageUrl)
+                      }
+                    }}
+                    className={`md:col-span-5 bg-slate-900 rounded-2xl p-4 flex flex-col items-center justify-center min-h-[320px] relative group border border-slate-800 ${
+                      selectedReceipt.imageUrl && isRevealed ? "cursor-zoom-in" : ""
+                    }`}
+                  >
+                    {isUploadingPhoto ? (
+                      <div className="text-center text-emerald-400 space-y-2 p-6">
+                        <RefreshCw className="w-10 h-10 mx-auto animate-spin" />
+                        <p className="text-xs font-bold">Mengompres & mengunggah foto nota...</p>
+                      </div>
+                    ) : selectedReceipt.imageUrl ? (
+                      isRevealed ? (
+                        <>
+                          {/* eslint-disable-next-html-element */}
+                          <img
+                            src={selectedReceipt.imageUrl}
+                            alt="Original Receipt"
+                            className="max-h-[420px] w-auto object-contain rounded-xl shadow-lg group-hover:opacity-90 transition-opacity"
+                          />
+                          <div className="absolute top-3 left-3 bg-slate-950/75 border border-slate-700/80 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold text-slate-300 backdrop-blur-xs pointer-events-none">
+                            {imgSizeKb} KB
+                          </div>
+                          <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-2xs rounded-2xl">
+                            <span className="px-4 py-2 rounded-2xl bg-slate-900/90 text-white font-extrabold text-xs border border-slate-700 flex items-center gap-2 shadow-2xl">
+                              <Maximize2 className="w-4 h-4 text-emerald-400" /> Klik Untuk Pop-Up Lightbox Zoom
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-center text-slate-300 space-y-3 p-6 bg-slate-950/70 rounded-2xl border border-amber-500/30 max-w-sm shadow-xl backdrop-blur-xs">
+                          <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                            <AlertTriangle className="w-6 h-6 text-amber-400" />
+                          </div>
+                          <div className="space-y-1">
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-300 text-[11px] font-mono font-bold">
+                              <span>Ukuran: {imgSizeKb} KB</span>
+                            </div>
+                            <p className="text-xs font-bold text-slate-200">
+                              Foto nota lebih dari 200 KB
+                            </p>
+                            <p className="text-[11px] text-slate-400 leading-relaxed">
+                              Tekan tombol di bawah untuk memuat dan melihat foto nota.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setRevealedHeavyImages((prev) => ({ ...prev, [selectedReceipt.id]: true }))
+                            }}
+                            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg hover:shadow-emerald-500/20 active:scale-95 cursor-pointer"
+                          >
+                            <Eye className="w-4 h-4" />
+                            Tekan untuk Load Nota ({imgSizeKb} KB)
+                          </button>
+                        </div>
+                      )
+                    ) : isLoadingDetailImage ? (
+                      <div className="text-center text-emerald-400 space-y-2 p-6">
+                        <RefreshCw className="w-10 h-10 mx-auto animate-spin" />
+                        <p className="text-xs font-bold">Memuat foto nota fisik dari database...</p>
+                      </div>
+                    ) : (
+                      <div className="text-center text-slate-500 space-y-3 p-6">
+                        <ReceiptIcon className="w-12 h-12 mx-auto text-slate-600" />
+                        <p className="text-xs font-medium text-slate-400">Tidak ada foto nota tersimpan</p>
+                        <div className="flex flex-col gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsLoadingDetailImage(true)
+                              fetch(`/api/receipts/${selectedReceipt.id}?_t=${Date.now()}`, { cache: "no-store" })
+                                .then((res) => (res.ok ? res.json() : null))
+                                .then((data) => {
+                                  if (data && data.imageUrl) {
+                                    setSelectedReceipt((prev) => (prev && prev.id === selectedReceipt.id ? { ...prev, imageUrl: data.imageUrl } : prev))
+                                    setAllReceipts((prev) => prev.map((r) => (r.id === selectedReceipt.id ? { ...r, imageUrl: data.imageUrl } : r)))
+                                  }
+                                })
+                                .catch(() => {})
+                                .finally(() => setIsLoadingDetailImage(false))
+                            }}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-[11px] font-bold transition-colors inline-flex items-center justify-center gap-1.5"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            Coba Muat Ulang Foto
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => detailFileInputRef.current?.click()}
+                            className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl text-[11px] font-bold transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <UploadCloud className="w-3.5 h-3.5" />
+                            Unggah Foto Nota
+                          </button>
+                          <input
+                            ref={detailFileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleUploadReceiptPhoto}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="text-center text-slate-500 space-y-2 p-6">
-                    <ReceiptIcon className="w-12 h-12 mx-auto" />
-                    <p className="text-xs font-medium">Tidak ada foto nota tersimpan</p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsLoadingDetailImage(true)
-                        fetch(`/api/receipts/${selectedReceipt.id}`)
-                          .then((res) => (res.ok ? res.json() : null))
-                          .then((data) => {
-                            if (data && data.imageUrl) {
-                              setSelectedReceipt((prev) => (prev && prev.id === selectedReceipt.id ? { ...prev, imageUrl: data.imageUrl } : prev))
-                            }
-                          })
-                          .catch(() => {})
-                          .finally(() => setIsLoadingDetailImage(false))
-                      }}
-                      className="mt-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-[11px] font-bold transition-colors"
-                    >
-                      Coba Muat Ulang Foto
-                    </button>
-                  </div>
-                )}
-              </div>
+                )
+              })()}
 
               <div className="md:col-span-7 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -3952,61 +4229,202 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                               ) : (
                                 <div className="p-3 bg-slate-50 rounded-xl text-center text-xs text-slate-600 border border-slate-200/80 flex items-center justify-between">
                                   <span>Target Nota: <strong>{merchantNameDisplay}</strong></span>
-                                  <span className="font-mono font-bold text-emerald-700">Rp {amountDisplay.toLocaleString("id-ID")}</span>
                                 </div>
                               )}
                             </div>
 
-                            {/* RINCIAN PERUBAHAN EDIT DATA (SIDE-BY-SIDE DIFF) */}
-                            {reqItem.actionType === "EDIT" && (
-                              <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
-                                <span className="font-black text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5 border-b border-slate-100 pb-1">
-                                  <Edit className="w-3.5 h-3.5 text-blue-600" /> Perbandingan Perubahan Data Edit:
-                                </span>
+                            {/* RINCIAN PERUBAHAN EDIT DATA (HANYA FIELD YANG BERUBAH) */}
+                            {reqItem.actionType === "EDIT" && (() => {
+                              const oldMerchant = (targetReceipt?.merchantName || "").trim()
+                              const newMerchant = (payloadObj.merchantName || "").trim()
+                              const merchantChanged = Boolean(newMerchant && oldMerchant !== newMerchant)
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                                  {/* Column Left: Data Saat Ini */}
-                                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                                    <span className="font-extrabold text-slate-500 uppercase text-[10px] block">Data Saat Ini (Database):</span>
-                                    <p><strong>Toko:</strong> {targetReceipt?.merchantName || "-"}</p>
-                                    <p><strong>Tanggal:</strong> {targetReceipt?.date || "-"}</p>
-                                    <p><strong>Total:</strong> Rp {Number(targetReceipt?.totalAmount || 0).toLocaleString("id-ID")}</p>
-                                    <p><strong>Metode:</strong> {targetReceipt?.paymentMethod || "Cash"}</p>
-                                    <p><strong>Status:</strong> {targetReceipt?.paymentStatus || "Lunas"}</p>
-                                    {targetReceipt?.items && (
-                                      <div className="pt-1 border-t border-slate-200">
-                                        <span className="font-bold block text-[10px]">Item Produk ({targetReceipt.items.length}):</span>
-                                        <ul className="list-disc pl-3 text-[10.5px] space-y-0.5 text-slate-600">
-                                          {targetReceipt.items.map((i: any, idx: number) => (
-                                            <li key={idx}>{i.name} (x{i.quantity}) — Rp {Number(i.price * i.quantity).toLocaleString("id-ID")}</li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
+                              const oldDate = (targetReceipt?.date || "").trim()
+                              const newDate = (payloadObj.date || "").trim()
+                              const dateChanged = Boolean(newDate && oldDate !== newDate)
+
+                              const oldTotal = Number(targetReceipt?.totalAmount || 0)
+                              const newTotal = Number(payloadObj.totalAmount || 0)
+                              const totalChanged = payloadObj.totalAmount !== undefined && oldTotal !== newTotal
+
+                              const oldMethod = (targetReceipt?.paymentMethod || "Cash").trim()
+                              const newMethod = (payloadObj.paymentMethod || "").trim()
+                              const methodChanged = Boolean(newMethod && oldMethod !== newMethod)
+
+                              const oldStatus = (targetReceipt?.paymentStatus || "Lunas").trim()
+                              const newStatus = (payloadObj.paymentStatus || "").trim()
+                              const statusChanged = Boolean(newStatus && oldStatus !== newStatus)
+
+                              const oldNote = (targetReceipt?.note || "").trim()
+                              const newNote = (payloadObj.note || "").trim()
+                              const noteChanged = payloadObj.note !== undefined && oldNote !== newNote
+
+                              const oldItems: any[] = targetReceipt?.items || []
+                              const newItems: any[] = payloadObj.items && Array.isArray(payloadObj.items) ? payloadObj.items : []
+                              const itemsChanged = newItems.length > 0 && (
+                                oldItems.length !== newItems.length ||
+                                JSON.stringify(oldItems.map((i) => ({ n: i.name, q: Number(i.quantity), p: Number(i.price) }))) !==
+                                JSON.stringify(newItems.map((i) => ({ n: i.name, q: Number(i.quantity || 1), p: Number(i.price || 0) })))
+                              )
+
+                              const hasAnyChange = merchantChanged || dateChanged || totalChanged || methodChanged || statusChanged || noteChanged || itemsChanged
+
+                              return (
+                                <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 text-xs shadow-2xs">
+                                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                    <span className="font-extrabold text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                                      <Edit className="w-3.5 h-3.5 text-blue-600" /> Perubahan Data yang Diedit:
+                                    </span>
+                                    <span className="text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                      Hanya Menampilkan Data yang Berubah
+                                    </span>
                                   </div>
 
-                                  {/* Column Right: Usulan Data Baru */}
-                                  <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 space-y-1 text-emerald-950">
-                                    <span className="font-extrabold text-emerald-700 uppercase text-[10px] block">Usulan Data Baru (Draft):</span>
-                                    <p><strong>Toko:</strong> <span className="font-bold text-emerald-900">{payloadObj.merchantName || "-"}</span></p>
-                                    <p><strong>Tanggal:</strong> <span className="font-bold text-emerald-900">{payloadObj.date || "-"}</span></p>
-                                    <p><strong>Total Baru:</strong> <span className="font-mono font-bold text-emerald-700">Rp {Number(payloadObj.totalAmount || 0).toLocaleString("id-ID")}</span></p>
-                                    <p><strong>Metode:</strong> {payloadObj.paymentMethod || "Cash"}</p>
-                                    <p><strong>Status:</strong> {payloadObj.paymentStatus || "Lunas"}</p>
-                                    {payloadObj.items && Array.isArray(payloadObj.items) && (
-                                      <div className="pt-1 border-t border-emerald-200">
-                                        <span className="font-bold block text-[10px]">Item Produk Baru ({payloadObj.items.length}):</span>
-                                        <ul className="list-disc pl-3 text-[10.5px] space-y-0.5 text-emerald-900 font-medium">
-                                          {payloadObj.items.map((i: any, idx: number) => (
-                                            <li key={idx}>{i.name} (x{i.quantity || 1}) — Rp {Number((i.price || 0) * (i.quantity || 1)).toLocaleString("id-ID")}</li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-                                  </div>
+                                  {!hasAnyChange ? (
+                                    <div className="p-3 bg-slate-50 rounded-xl text-center text-[11.5px] text-slate-500 font-medium border border-slate-200/80">
+                                      Seluruh data identik / tidak ditemukan perbedaan field data utama.
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-2 text-[11.5px]">
+                                      {/* Tanggal */}
+                                      {dateChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <Calendar className="w-3.5 h-3.5 text-amber-700" /> Tanggal Transaksi:
+                                          </span>
+                                          <div className="flex items-center gap-2 font-mono">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              {oldDate || "-"}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300 text-[11px]">
+                                              {newDate}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Toko / Merchant */}
+                                      {merchantChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <Store className="w-3.5 h-3.5 text-amber-700" /> Nama Toko / Merchant:
+                                          </span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              {oldMerchant || "-"}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300 text-[11px]">
+                                              {newMerchant}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Total Nominal */}
+                                      {totalChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <DollarSign className="w-3.5 h-3.5 text-amber-700" /> Total Nominal:
+                                          </span>
+                                          <div className="flex items-center gap-2 font-mono">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              Rp {oldTotal.toLocaleString("id-ID")}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black border border-emerald-300 text-[11.5px]">
+                                              Rp {newTotal.toLocaleString("id-ID")}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Metode Pembayaran */}
+                                      {methodChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <CreditCard className="w-3.5 h-3.5 text-amber-700" /> Metode Pembayaran:
+                                          </span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              {oldMethod}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300 text-[11px]">
+                                              {newMethod}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Status Pembayaran */}
+                                      {statusChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <ShieldCheck className="w-3.5 h-3.5 text-amber-700" /> Status Pembayaran:
+                                          </span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              {oldStatus}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300 text-[11px]">
+                                              {newStatus}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Catatan */}
+                                      {noteChanged && (
+                                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-start justify-between gap-1.5">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 shrink-0">
+                                            <FileText className="w-3.5 h-3.5 text-amber-700" /> Catatan:
+                                          </span>
+                                          <div className="flex items-center gap-2 flex-1 justify-end">
+                                            <span className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 line-through font-semibold text-[11px]">
+                                              {oldNote || "(Kosong)"}
+                                            </span>
+                                            <span className="text-slate-400 font-bold">➔</span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300 text-[11px]">
+                                              {newNote || "(Dikosongkan)"}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Rincian Item Produk */}
+                                      {itemsChanged && (
+                                        <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                                          <span className="font-extrabold text-amber-900 flex items-center gap-1 text-[11px]">
+                                            <Tag className="w-3.5 h-3.5 text-amber-700" /> Rincian Item Produk Diperbarui ({newItems.length} Item Baru):
+                                          </span>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10.5px]">
+                                            <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1">
+                                              <span className="font-bold text-slate-400 uppercase text-[9.5px] block">Item Sebelum Edit:</span>
+                                              <ul className="list-disc pl-3 space-y-0.5 text-slate-500 line-through">
+                                                {oldItems.map((i, idx) => (
+                                                  <li key={idx}>{i.name} (x{i.quantity}) — Rp {Number((i.price || 0) * (i.quantity || 1)).toLocaleString("id-ID")}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                            <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 space-y-1">
+                                              <span className="font-bold text-emerald-800 uppercase text-[9.5px] block">Item Usulan Baru:</span>
+                                              <ul className="list-disc pl-3 space-y-0.5 text-emerald-950 font-bold">
+                                                {newItems.map((i, idx) => (
+                                                  <li key={idx}>{i.name} (x{i.quantity || 1}) — Rp {Number((i.price || 0) * (i.quantity || 1)).toLocaleString("id-ID")}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
-                              </div>
-                            )}
+                              )
+                            })()}
 
                             {(reqItem.actionType === "SETTLE" || reqItem.actionType === "BULK_SETTLE") && (
                               <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-xs text-emerald-950 space-y-2">
@@ -4352,17 +4770,31 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                 notifications.map((n: any) => (
                   <div
                     key={n.id}
-                    className={`p-3 rounded-2xl border text-xs space-y-1 transition-all ${
-                      !n.isRead ? "bg-amber-50/80 border-amber-200" : "bg-white border-slate-200 opacity-80"
+                    onClick={() => handleNotificationClick(n)}
+                    className={`p-3.5 rounded-2xl border text-xs space-y-1.5 transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.99] ${
+                      !n.isRead
+                        ? "bg-amber-50/90 border-amber-300 ring-1 ring-amber-400/30 shadow-xs"
+                        : "bg-white border-slate-200 hover:bg-slate-50 opacity-85"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-slate-900">{n.title}</span>
-                      <span className="text-[10px] text-slate-400 font-medium">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        {!n.isRead && (
+                          <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 animate-pulse" title="Belum Dibaca" />
+                        )}
+                        <span className="font-extrabold text-slate-900">{n.title}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-medium shrink-0">
                         {new Date(n.createdAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     </div>
                     <p className="text-slate-600 font-medium leading-snug">{n.message}</p>
+                    <div className="pt-1 flex items-center justify-between text-[10.5px] text-emerald-700 font-bold border-t border-slate-100/80">
+                      <span className="flex items-center gap-1">
+                        <ExternalLink className="w-3 h-3 text-emerald-600" /> Klik untuk lihat rincian nota ➔
+                      </span>
+                      {!n.isRead && <span className="text-amber-700 font-black text-[9.5px] uppercase bg-amber-100 px-1.5 py-0.5 rounded-md">Baru</span>}
+                    </div>
                   </div>
                 ))
               )}

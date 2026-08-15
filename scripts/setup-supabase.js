@@ -58,8 +58,9 @@ async function main() {
       ALTER TABLE public.receipt_items ALTER COLUMN id SET DEFAULT gen_random_uuid();
       ALTER TABLE public.scan_limits ALTER COLUMN id SET DEFAULT gen_random_uuid();
       ALTER TABLE public.notifications ALTER COLUMN id SET DEFAULT gen_random_uuid();
+      ALTER TABLE public.push_subscriptions ALTER COLUMN id SET DEFAULT gen_random_uuid();
     `);
-    console.log('✓ All 9 Supabase Tables & 19 B-Tree Indexes created/verified with gen_random_uuid()!');
+    console.log('✓ All 10 Supabase Tables & 22 B-Tree Indexes created/verified with gen_random_uuid()!');
 
     // Seed default admin accounts if empty
     await client.query(`

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest, getAdminRoleFromRequest } from "@/lib/authHelper"
+import { sendWebPushNotification } from "@/lib/serverPush"
+import { invalidateApprovalsCache } from "@/app/api/approvals/route"
+import { invalidateNotificationsCache } from "@/app/api/notifications/route"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -64,17 +67,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       throw new Error(updateErr.message)
     }
 
-    // Insert notification to requesting admin
-    const requester = pendingApproval.requestedBy
-    await supabase.from("notifications").insert({
-      recipient: requester.toLowerCase(),
-      sender: rejectingAdmin,
-      type: "REJECT",
-      title: "Permintaan Ditolak",
-      message: `Admin ${rejectingAdmin} menolak permintaan ${pendingApproval.actionType} Anda. Alasan: ${reason || "Tidak disetujui"}.`,
-      approvalId: cleanId,
-      isRead: false,
-    })
+    // Invalidate caches immediately
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
+
+    // Insert notification to all admins & Send Web Push
+    try {
+      const notifTitle = "Permintaan Ditolak"
+      const notifMsg = `Admin ${rejectingAdmin} menolak permintaan ${pendingApproval.actionType} Anda. Alasan: ${reason || "Tidak disetujui"}.`
+
+      await supabase.from("notifications").insert({
+        recipient: "all",
+        sender: rejectingAdmin,
+        type: "REJECT",
+        title: notifTitle,
+        message: notifMsg,
+        approvalId: cleanId,
+        isRead: false,
+      })
+
+      sendWebPushNotification({
+        title: notifTitle,
+        message: notifMsg,
+        url: "/",
+        recipientRole: "ADMIN",
+        excludeUsername: rejectingAdmin,
+      }).catch((pErr) => console.warn("[WebPush Error on Reject]:", pErr))
+    } catch (nErr) {
+      console.warn("Reject notification error:", nErr)
+    }
 
     return NextResponse.json({
       success: true,

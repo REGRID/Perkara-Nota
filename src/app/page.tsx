@@ -10,10 +10,20 @@ import { SettingsModal } from "@/components/SettingsModal"
 import { ParsedReceiptResult } from "@/app/api/parse-receipt/route"
 import { Camera, History, ShieldCheck, CheckCircle2, Maximize2, LogOut, UserCheck, Loader2, Settings } from "lucide-react"
 
+import { registerPushSubscription } from "@/lib/pwaNotification"
+
 export default function HomePage() {
   // Admin Auth Gate State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const [adminUser, setAdminUser] = useState<string>("rama")
+
+  // Auto-register Web Push subscription in background if permission is granted
+  useEffect(() => {
+    if (isAuthenticated && typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      registerPushSubscription(adminUser, adminUser.toLowerCase() === "karyawan" ? "KARYAWAN" : "ADMIN")
+        .catch(() => {})
+    }
+  }, [isAuthenticated, adminUser])
 
   const [activeTab, setActiveTab] = useState<"scan" | "history">(() => {
     if (typeof window !== "undefined") {
@@ -56,7 +66,7 @@ export default function HomePage() {
   // Saved Receipt Editing State
   const [editingReceiptId, setEditingReceiptId] = useState<string | null>(null)
   const [existingPaymentMethod, setExistingPaymentMethod] = useState<string>("Cash")
-  const [existingPaymentStatus, setExistingPaymentStatus] = useState<string>("Sudah Dilunasi")
+  const [existingPaymentStatus, setExistingPaymentStatus] = useState<string>("Lunas")
   const [existingNote, setExistingNote] = useState<string>("")
 
   // Realtime Quota Status State
@@ -431,7 +441,7 @@ export default function HomePage() {
       })),
     })
     setExistingPaymentMethod(targetReceipt.paymentMethod || "Cash")
-    setExistingPaymentStatus(targetReceipt.paymentStatus || "Sudah Dilunasi")
+    setExistingPaymentStatus(targetReceipt.paymentStatus || "Lunas")
     setExistingNote(targetReceipt.note || "")
     setParsingMode("saved_receipt_edit")
   }

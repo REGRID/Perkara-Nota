@@ -46,7 +46,8 @@ async function applyRlsPolicies() {
       'custom_categories',
       'pending_approvals',
       'admin_accounts',
-      'notifications'
+      'notifications',
+      'push_subscriptions'
     ];
 
     console.log('[Supabase Deployment Setup] Enabling Row Level Security (RLS) & Adding Public Policies...');

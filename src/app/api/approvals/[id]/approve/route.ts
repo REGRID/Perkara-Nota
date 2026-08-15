@@ -3,6 +3,9 @@ import { supabase } from "@/lib/supabase"
 import { getAdminUserFromRequest, getAdminRoleFromRequest } from "@/lib/authHelper"
 import { compressBase64Image } from "@/lib/imageCompressor"
 import { invalidateReceiptsListCache } from "@/app/api/receipts/route"
+import { invalidateApprovalsCache } from "@/app/api/approvals/route"
+import { invalidateNotificationsCache } from "@/app/api/notifications/route"
+import { sendWebPushNotification } from "@/lib/serverPush"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -167,17 +170,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       throw new Error(updateErr.message)
     }
 
-    // Insert notification to requesting admin
-    const requester = pendingApproval.requestedBy
-    await supabase.from("notifications").insert({
-      recipient: requester.toLowerCase(),
-      sender: approvingAdmin,
-      type: "APPROVE",
-      title: "Permintaan Diverifikasi & Disetujui",
-      message: `Admin ${approvingAdmin} telah memverifikasi & menyetujui permintaan ${pendingApproval.actionType} Anda.`,
-      approvalId: cleanId,
-      isRead: false,
-    })
+    // Invalidate caches immediately
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
+    invalidateReceiptsListCache()
+
+    // Insert notification to all admins & Send Web Push
+    try {
+      const notifTitle = "Permintaan Diverifikasi & Disetujui"
+      const notifMsg = `Admin ${approvingAdmin} telah memverifikasi & menyetujui permintaan ${pendingApproval.actionType} Anda.`
+
+      await supabase.from("notifications").insert({
+        recipient: "all",
+        sender: approvingAdmin,
+        type: "APPROVE",
+        title: notifTitle,
+        message: notifMsg,
+        approvalId: cleanId,
+        isRead: false,
+      })
+
+      sendWebPushNotification({
+        title: notifTitle,
+        message: notifMsg,
+        url: "/",
+        recipientRole: "ADMIN",
+        excludeUsername: approvingAdmin,
+      }).catch((pErr) => console.warn("[WebPush Error on Approval]:", pErr))
+    } catch (nErr) {
+      console.warn("Approve notification error:", nErr)
+    }
 
     return NextResponse.json({
       success: true,

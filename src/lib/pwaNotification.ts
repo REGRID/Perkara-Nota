@@ -1,6 +1,25 @@
 /**
- * PWA Native OS System Notification Utility
+ * PWA Native OS & Web Push Notification Utility
+ * Handles Background Notifications even when browser / app is completely closed.
  */
+
+export const VAPID_PUBLIC_KEY =
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
+  "BO_S9oK2ObAvgfSAO-osPlgLpEp6471E9BVQxYNN0CgbQPHFEojBmJAvRhcK4iOqmYkmRfmOGpK6wUOezzaoWhk"
+
+/**
+ * Convert VAPID base64 string to Uint8Array for PushManager
+ */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/")
+  const rawData = window.atob(base64)
+  const outputArray = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i)
+  }
+  return outputArray
+}
 
 export function getNotificationPermissionStatus(): 'granted' | 'denied' | 'default' | 'unsupported' {
   if (typeof window === "undefined" || !("Notification" in window)) {
@@ -55,6 +74,127 @@ export function saveNotificationSettings(settings: NotificationSettings) {
   } catch (e) {}
 }
 
+/**
+ * Register background Web Push subscription to server
+ * This allows receiving notifications on mobile phones even when the app is completely closed.
+ */
+export async function registerPushSubscription(
+  username = "all",
+  role = "ALL"
+): Promise<{ success: boolean; error?: string }> {
+  if (typeof window === "undefined") {
+    return { success: false, error: "Window is undefined" }
+  }
+
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return {
+      success: false,
+      error: "Perangkat atau browser ini tidak mendukung Web Push API.",
+    }
+  }
+
+  try {
+    // 1. Request permission
+    const granted = await requestNotificationPermission()
+    if (!granted) {
+      return { success: false, error: "Izin notifikasi belum diaktifkan oleh pengguna." }
+    }
+
+    // 2. Ensure Service Worker is registered and ready
+    let reg = await navigator.serviceWorker.getRegistration()
+    if (!reg) {
+      reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" })
+    }
+    await navigator.serviceWorker.ready
+
+    // 3. Check existing subscription or create new one
+    let subscription = await reg.pushManager.getSubscription()
+    if (!subscription) {
+      const convertedKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: convertedKey as any,
+      })
+    }
+
+    if (!subscription) {
+      return { success: false, error: "Gagal membuat langganan push." }
+    }
+
+    // 4. Send subscription to server
+    const res = await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription: subscription.toJSON(),
+        username,
+        role,
+        userAgent: navigator.userAgent,
+      }),
+    })
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}))
+      return { success: false, error: errJson.error || "Gagal menyimpan langganan di server." }
+    }
+
+    // Mark registered in localStorage
+    localStorage.setItem("nota_push_registered_v1", "true")
+    return { success: true }
+  } catch (err: any) {
+    console.error("[registerPushSubscription Error]:", err)
+    return { success: false, error: err.message || "Terjadi kesalahan saat mendaftarkan Web Push." }
+  }
+}
+
+/**
+ * Check if the current browser already has an active Web Push subscription
+ */
+export async function isPushSubscribed(): Promise<boolean> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return false
+  }
+  try {
+    const reg = await navigator.serviceWorker.getRegistration()
+    if (!reg) return false
+    const sub = await reg.pushManager.getSubscription()
+    return !!sub
+  } catch (e) {
+    return false
+  }
+}
+
+/**
+ * Unsubscribe from background Web Push
+ */
+export async function unsubscribePushNotifications(): Promise<boolean> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
+    return false
+  }
+  try {
+    const reg = await navigator.serviceWorker.getRegistration()
+    if (!reg) return false
+    const sub = await reg.pushManager.getSubscription()
+    if (sub) {
+      const endpoint = sub.endpoint
+      await sub.unsubscribe()
+      await fetch("/api/push/unsubscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint }),
+      })
+    }
+    localStorage.removeItem("nota_push_registered_v1")
+    return true
+  } catch (e) {
+    console.error("Unsubscribe error:", e)
+    return false
+  }
+}
+
+/**
+ * Send in-app / local OS notification (when app is open)
+ */
 export function sendNativeOSNotification(title: string, body: string, icon = "/icon-192.png") {
   if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") {
     return
@@ -63,12 +203,11 @@ export function sendNativeOSNotification(title: string, body: string, icon = "/i
   const settings = getNotificationSettings()
   if (!settings.osPushEnabled) return
 
-  // Strip any emoji characters from native notification title/body
+  // Strip emoji characters if needed for clean display
   const cleanTitle = title.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}]/gu, "").trim()
   const cleanBody = body.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}]/gu, "").trim()
 
   try {
-    // 1. Try Service Worker registration notification first (Best for PWA installed apps on Mobile & Desktop)
     if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({
         type: "TRIGGER_NOTIFICATION",
@@ -77,22 +216,45 @@ export function sendNativeOSNotification(title: string, body: string, icon = "/i
           body: cleanBody || body,
           icon,
           badge: icon,
-          vibrate: [200, 100, 200],
+          vibrate: [300, 100, 300],
           timestamp: Date.now(),
         },
       })
       return
     }
 
-    // 2. Fallback to standard Browser Notification constructor
     new Notification(cleanTitle || title, {
       body: cleanBody || body,
       icon,
       badge: icon,
-      vibrate: [200, 100, 200],
+      vibrate: [300, 100, 300],
     } as any)
   } catch (err) {
     console.warn("Could not trigger native OS notification:", err)
+  }
+}
+
+/**
+ * Test background push notification with countdown delay (allows user to lock screen / close app to test)
+ */
+export async function testBackgroundPushNotification(delaySeconds = 5): Promise<{ success: boolean; message?: string }> {
+  try {
+    const res = await fetch("/api/push/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Perkara Kopi: Pengujian Notifikasi HP",
+        message: "Notifikasi berhasil muncul di bilah notifikasi HP Anda meski aplikasi tertutup!",
+        delaySeconds,
+      }),
+    })
+    const data = await res.json()
+    return {
+      success: res.ok && data.success,
+      message: data.message || "Notifikasi pengujian dikirim.",
+    }
+  } catch (err: any) {
+    return { success: false, message: err.message || "Gagal mengirim push test." }
   }
 }
 
@@ -126,7 +288,7 @@ export async function testNativeOSNotification(
           body,
           icon: "/icon-192.png",
           badge: "/icon-192.png",
-          vibrate: [200, 100, 200],
+          vibrate: [300, 100, 300],
           timestamp: Date.now(),
         },
       })
@@ -135,7 +297,7 @@ export async function testNativeOSNotification(
         body,
         icon: "/icon-192.png",
         badge: "/icon-192.png",
-        vibrate: [200, 100, 200],
+        vibrate: [300, 100, 300],
       } as any)
     }
     return true

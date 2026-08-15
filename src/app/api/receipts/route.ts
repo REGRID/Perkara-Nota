@@ -4,9 +4,13 @@ import { recordVerifiedReceiptLearning } from "@/lib/selfLearningEngine"
 import { getAdminUserFromRequest, getAdminRoleFromRequest, getStaffNameFromRequest } from "@/lib/authHelper"
 import { getOrSeedCategories } from "@/lib/categories"
 import { compressBase64Image } from "@/lib/imageCompressor"
+import { sendWebPushNotification } from "@/lib/serverPush"
+import { invalidateApprovalsCache } from "@/app/api/approvals/route"
+import { invalidateNotificationsCache } from "@/app/api/notifications/route"
+import { queryPg } from "@/lib/pgDb"
 
 const RECEIPT_LIST_SELECT =
-  "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(*)"
+  "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity)"
 
 let listCache: { key: string; data: any; timestamp: number } | null = null
 const LIST_CACHE_TTL = 5000 // 5 seconds cache
@@ -35,23 +39,58 @@ export async function GET(req: NextRequest) {
 
     const rootKeyword = category ? category.split("/")[0].trim() : ""
 
-    let query = supabase
-      .from("receipts")
-      .select(RECEIPT_LIST_SELECT)
-      .order("createdAt", { ascending: false })
+    let receipts: any[] = []
 
-    if (limit) {
-      query = query.limit(limit)
+    try {
+      const pgRes = await queryPg(
+        `SELECT 
+          r.id, 
+          r."merchantName", 
+          r.date, 
+          r.subtotal, 
+          r."taxAmount", 
+          r."totalAmount", 
+          r."paymentMethod", 
+          r."paymentStatus", 
+          r.note, 
+          r."staffName", 
+          r."createdAt", 
+          r."updatedAt",
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'id', i.id,
+                'name', i.name,
+                'category', i.category,
+                'subCategory', i."subCategory",
+                'price', i.price,
+                'quantity', i.quantity
+              )
+            ) FILTER (WHERE i.id IS NOT NULL),
+            '[]'::json
+          ) as items
+        FROM receipts r
+        LEFT JOIN receipt_items i ON i."receiptId" = r.id
+        GROUP BY r.id
+        ORDER BY r."createdAt" DESC
+        ${limit ? `LIMIT ${limit}` : ''}`
+      )
+      receipts = pgRes.rows || []
+    } catch (pgErr) {
+      console.warn("Direct PG query notice, falling back to Supabase JS:", pgErr)
+      let query = supabase
+        .from("receipts")
+        .select(RECEIPT_LIST_SELECT)
+        .order("createdAt", { ascending: false })
+
+      if (limit) {
+        query = query.limit(limit)
+      }
+
+      const { data: rawReceipts, error } = await query
+      if (error) throw new Error(error.message)
+      receipts = rawReceipts || []
     }
-
-    const { data: rawReceipts, error } = await query
-
-    if (error) {
-      console.error("GET Receipts Supabase Error:", error)
-      throw new Error(error.message)
-    }
-
-    let receipts = rawReceipts || []
 
     // In-memory filter for complex relational search/category criteria
     if (search || category) {
@@ -123,13 +162,15 @@ export async function GET(req: NextRequest) {
     // Role KARYAWAN Data Scoping: Only return receipts uploaded by Karyawan or Talangan Karyawan
     const userRole = getAdminRoleFromRequest(req)
     if (userRole === "KARYAWAN") {
+      const knownStaff = ["reza", "ummu", "cheisa", "novi", "titis", "karyawan"]
       normalizedReceipts = normalizedReceipts.filter((r: any) => {
         const noteText = (r.note || "").toLowerCase()
         const method = (r.paymentMethod || "").toLowerCase()
         return (
           method === "talangan karyawan" ||
           noteText.includes("(karyawan)") ||
-          noteText.includes("diunggah oleh:")
+          noteText.includes("diunggah oleh:") ||
+          knownStaff.some((st) => noteText.includes(st))
         )
       })
     }
@@ -148,7 +189,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, items } = body
+    const {
+      merchantName,
+      date,
+      subtotal = 0,
+      taxAmount = 0,
+      totalAmount = 0,
+      paymentMethod = "Cash",
+      paymentStatus = "Lunas",
+      note,
+      items = [],
+      imageUrl,
+      staffName,
+    } = body
 
     if (!date) {
       return NextResponse.json({ error: "Tanggal nota wajib diisi" }, { status: 400 })
@@ -161,7 +214,7 @@ export async function POST(req: NextRequest) {
     invalidateReceiptsListCache()
 
     const userRole = getAdminRoleFromRequest(req)
-    const staffName = getStaffNameFromRequest(req)
+    const reqStaffName = staffName || getStaffNameFromRequest(req)
 
     const isPersonal =
       paymentMethod === "Dana Pribadi Owner" || paymentMethod === "Talangan Karyawan"
@@ -172,8 +225,8 @@ export async function POST(req: NextRequest) {
         : note.replace(/\[Dibayar oleh: [^\]]+\]\s*/g, "").trim() || null
       : null
 
-    if (userRole === "KARYAWAN" && staffName) {
-      const uploaderTag = `[Diunggah oleh: ${staffName} (Karyawan)]`
+    if (userRole === "KARYAWAN" && reqStaffName) {
+      const uploaderTag = `[Diunggah oleh: ${reqStaffName} (Karyawan)]`
       if (!cleanedNote) {
         cleanedNote = uploaderTag
       } else if (!cleanedNote.includes("[Diunggah oleh:")) {
@@ -181,58 +234,101 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const compressedImageUrl = await compressBase64Image(imageUrl)
+    // 1. Compress Image before storing
+    const compressedImageUrl = imageUrl ? await compressBase64Image(imageUrl) : null
 
-    const nowIso = new Date().toISOString()
-
-    const { data: newReceipt, error: receiptErr } = await supabase
+    // 2. Insert master receipt
+    const { data: newReceipt, error: receiptError } = await supabase
       .from("receipts")
       .insert({
         merchantName: merchantName || "Nota / Toko",
-        date: date,
-        imageUrl: compressedImageUrl || null,
+        date: date || new Date().toISOString().split("T")[0],
+        imageUrl: compressedImageUrl,
         subtotal: Number(subtotal) || 0,
         taxAmount: Number(taxAmount) || 0,
         totalAmount: Number(totalAmount) || 0,
         paymentMethod: paymentMethod || "Cash",
-        paymentStatus: !paymentStatus || paymentStatus === "Lunas" ? "Sudah Dilunasi" : paymentStatus,
+        paymentStatus: paymentStatus || "Lunas",
         note: cleanedNote,
-        staffName: staffName || null,
-        createdAt: nowIso,
-        updatedAt: nowIso,
+        staffName: reqStaffName || null,
+        updatedAt: new Date().toISOString(),
       })
-      .select("id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt")
+      .select()
       .single()
 
-    if (receiptErr || !newReceipt) {
-      throw new Error(receiptErr?.message || "Gagal menyimpan nota ke database")
+    if (receiptError) {
+      console.error("Insert Receipt Error:", receiptError)
+      throw new Error(receiptError.message)
     }
 
-    const itemsToCreate = items.map((it: any) => ({
-      receiptId: newReceipt.id,
-      name: it.name || "Item",
-      category: it.category ? it.category.split("/")[0].trim() : "Lain-lain",
-      subCategory: it.subCategory || "Umum",
-      price: Number(it.price) || 0,
-      quantity: Number(it.quantity) || 1,
-    }))
+    // 3. Insert items if any
+    let insertedItems: any[] = []
+    if (items && Array.isArray(items) && items.length > 0) {
+      const itemsToInsert = items.map((item: any) => ({
+        receiptId: newReceipt.id,
+        name: item.name || "Item",
+        category: item.category || "Lain-lain",
+        subCategory: item.subCategory || "Umum",
+        price: Number(item.price) || 0,
+        quantity: Number(item.quantity) || 1,
+      }))
 
-    const { data: createdItems } = await supabase
-      .from("receipt_items")
-      .insert(itemsToCreate)
-      .select("*")
+      const { data: itemsData, error: itemsError } = await supabase
+        .from("receipt_items")
+        .insert(itemsToInsert)
+        .select()
+
+      if (itemsError) {
+        console.error("Insert Items Error:", itemsError)
+      } else {
+        insertedItems = itemsData || []
+      }
+    }
 
     const fullReceipt = {
       ...newReceipt,
-      items: createdItems || [],
+      items: insertedItems,
     }
 
-    // Continuous Self-Learning Engine: Record verified user input asynchronously (non-blocking)
-    void recordVerifiedReceiptLearning(merchantName, items).catch((err) =>
-      console.warn("Background self-learning error:", err)
-    )
+    // 4. Background auto-learning into dictionaries
+    try {
+      if (merchantName) {
+        await supabase
+          .from("merchant_dictionaries")
+          .upsert(
+            {
+              rawPattern: merchantName.toLowerCase().trim(),
+              cleanName: merchantName.trim(),
+              updatedAt: new Date().toISOString(),
+            },
+            { onConflict: "rawPattern" }
+          )
+      }
 
-    // Insert Notification for newly added receipt
+      if (insertedItems.length > 0) {
+        for (const itm of insertedItems) {
+          if (itm.name) {
+            await supabase
+              .from("product_dictionaries")
+              .upsert(
+                {
+                  rawName: itm.name.toLowerCase().trim(),
+                  verifiedName: itm.name.trim(),
+                  category: itm.category || "Lain-lain",
+                  subCategory: itm.subCategory || "Umum",
+                  lastKnownPrice: Number(itm.price) || 0,
+                  updatedAt: new Date().toISOString(),
+                },
+                { onConflict: "rawName" }
+              )
+          }
+        }
+      }
+    } catch (dictErr) {
+      console.warn("Background auto-learning notice:", dictErr)
+    }
+
+    // 5. Insert Notification & Send Real Web Push to Mobile Phones
     try {
       const isKaryawanUpload = Boolean(staffName) || getAdminRoleFromRequest(req) === "KARYAWAN"
       const uploaderName = staffName
@@ -241,16 +337,28 @@ export async function POST(req: NextRequest) {
         ? "Karyawan"
         : getAdminUserFromRequest(req) || "Admin"
 
-      const recipient = isKaryawanUpload ? "all" : (uploaderName.toLowerCase().includes("rama") ? "refo" : "rama")
+      const notifTitle = "Nota Baru Masuk"
+      const notifMessage = `${uploaderName} telah menyimpan nota baru dari "${merchantName || 'Nota / Toko'}" sebesar Rp ${(Number(totalAmount) || 0).toLocaleString("id-ID")}.`
 
       await supabase.from("notifications").insert({
-        recipient: recipient,
+        recipient: "all",
         sender: uploaderName,
         type: "NEW_RECEIPT",
-        title: "Nota Baru Masuk",
-        message: `${uploaderName} telah menyimpan nota baru dari "${merchantName || 'Nota / Toko'}" sebesar Rp ${(Number(totalAmount) || 0).toLocaleString("id-ID")}.`,
+        title: notifTitle,
+        message: notifMessage,
+        receiptId: newReceipt.id,
         isRead: false,
       })
+
+      // Trigger Web Push so locked/closed phones receive the notification
+      sendWebPushNotification({
+        title: notifTitle,
+        message: notifMessage,
+        url: "/",
+        recipientRole: "ALL",
+        excludeUsername: uploaderName,
+      }).catch((pErr: any) => console.warn("[WebPush Error on New Receipt]:", pErr))
+      invalidateNotificationsCache()
     } catch (nErr) {
       console.warn("New receipt notification insert notice:", nErr)
     }
@@ -271,6 +379,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     invalidateReceiptsListCache()
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
 
     const { data: approval, error } = await supabase
       .from("pending_approvals")
@@ -287,18 +397,28 @@ export async function DELETE(req: NextRequest) {
       throw new Error(error.message)
     }
 
-    // Insert Notification for other admin
+    // Insert Notification for other admin & Send Web Push
     try {
-      const recipientAdmin = adminUser.toLowerCase().includes("rama") ? "refo" : "rama"
+      const notifTitle = `Permintaan Hapus Massal (${ids.length} Nota)`
+      const notifMsg = `Admin ${adminUser} mengajukan penghapusan massal untuk ${ids.length} nota.`
+
       await supabase.from("notifications").insert({
-        recipient: recipientAdmin,
+        recipient: "all",
         sender: adminUser,
         type: "REQUEST",
-        title: `Permintaan Hapus Massal (${ids.length} Nota)`,
-        message: `Admin ${adminUser} mengajukan penghapusan massal untuk ${ids.length} nota.`,
+        title: notifTitle,
+        message: notifMsg,
         approvalId: approval.id,
         isRead: false,
       })
+
+      sendWebPushNotification({
+        title: notifTitle,
+        message: notifMsg,
+        url: "/",
+        recipientRole: "ADMIN",
+        excludeUsername: adminUser,
+      }).catch((pErr: any) => console.warn("[WebPush Error on Bulk Delete]:", pErr))
     } catch (nErr) {
       console.warn("Bulk delete notification insert notice:", nErr)
     }
@@ -323,8 +443,10 @@ export async function PATCH(req: NextRequest) {
     }
 
     invalidateReceiptsListCache()
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
 
-    const statusToSet = !paymentStatus || paymentStatus === "Lunas" ? "Sudah Dilunasi" : paymentStatus
+    const statusToSet = paymentStatus || "Sudah Dilunasi"
     const compressedProof = proofImageUrl ? await compressBase64Image(proofImageUrl) : null
 
     const payloadObj = {
@@ -350,17 +472,31 @@ export async function PATCH(req: NextRequest) {
       throw new Error(error.message)
     }
 
-    // Insert Notification for other admin
-    const recipientAdmin = adminUser.toLowerCase() === "rama" ? "refo" : "rama"
-    await supabase.from("notifications").insert({
-      recipient: recipientAdmin,
-      sender: adminUser,
-      type: "REQUEST",
-      title: `Pengajuan Pelunasan (${ids.length} Nota)`,
-      message: `Admin ${adminUser} mengajukan pelunasan untuk ${ids.length} nota${personName ? ` (${personName})` : ''} sebesar Rp ${(Number(totalAmount) || 0).toLocaleString("id-ID")}.`,
-      approvalId: approval.id,
-      isRead: false,
-    })
+    // Insert Notification for all admins & Send Web Push
+    try {
+      const notifTitle = `Pengajuan Pelunasan (${ids.length} Nota)`
+      const notifMsg = `Admin ${adminUser} mengajukan pelunasan untuk ${ids.length} nota${personName ? ` (${personName})` : ''} sebesar Rp ${(Number(totalAmount) || 0).toLocaleString("id-ID")}.`
+
+      await supabase.from("notifications").insert({
+        recipient: "all",
+        sender: adminUser,
+        type: "REQUEST",
+        title: notifTitle,
+        message: notifMsg,
+        approvalId: approval.id,
+        isRead: false,
+      })
+
+      sendWebPushNotification({
+        title: notifTitle,
+        message: notifMsg,
+        url: "/",
+        recipientRole: "ADMIN",
+        excludeUsername: adminUser,
+      }).catch((pErr: any) => console.warn("[WebPush Error on Bulk Settle]:", pErr))
+    } catch (nErr) {
+      console.warn("Bulk settle notification insert notice:", nErr)
+    }
 
     return NextResponse.json({
       pendingApproval: true,
@@ -369,6 +505,6 @@ export async function PATCH(req: NextRequest) {
     })
   } catch (error: any) {
     console.error("Bulk PATCH Receipts Error:", error)
-    return NextResponse.json({ error: error.message || "Gagal mengajukan pelunasan nota secara massal" }, { status: 500 })
+    return NextResponse.json({ error: "Gagal mengajukan pelunasan nota secara massal" }, { status: 500 })
   }
 }
