@@ -7,7 +7,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params
     const { data: receipt, error } = await supabase
       .from("receipts")
-      .select("*, items:receipt_items(*)")
+      .select("id, merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(*)")
       .eq("id", id)
       .single()
 

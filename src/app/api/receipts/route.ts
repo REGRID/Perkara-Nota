@@ -6,7 +6,7 @@ import { getOrSeedCategories } from "@/lib/categories"
 import { compressBase64Image } from "@/lib/imageCompressor"
 
 const RECEIPT_LIST_SELECT =
-  "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, createdAt, updatedAt, items:receipt_items(*)"
+  "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(*)"
 
 let listCache: { key: string; data: any; timestamp: number } | null = null
 const LIST_CACHE_TTL = 5000 // 5 seconds cache
@@ -197,10 +197,11 @@ export async function POST(req: NextRequest) {
         paymentMethod: paymentMethod || "Cash",
         paymentStatus: !paymentStatus || paymentStatus === "Lunas" ? "Sudah Dilunasi" : paymentStatus,
         note: cleanedNote,
+        staffName: staffName || null,
         createdAt: nowIso,
         updatedAt: nowIso,
       })
-      .select("id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, createdAt, updatedAt")
+      .select("id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt")
       .single()
 
     if (receiptErr || !newReceipt) {
