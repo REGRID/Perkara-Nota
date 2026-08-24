@@ -352,7 +352,7 @@ export function VerificationSplitScreen({
     setTaxAmount(initialResult.taxAmount ?? 0)
     setDiscountAmount(initialResult.discountAmount ?? 0)
     setErrorMsg("")
-  }, [batchInfo?.currentIndex, editingReceiptId])
+  }, [initialResult, batchInfo?.currentIndex, editingReceiptId])
 
   // Auto-calculated subtotal from items
   const itemsSubtotal = items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0)
@@ -1063,7 +1063,7 @@ export function VerificationSplitScreen({
             {/* Subtotal & Tax (PPN) Fields */}
             <div className="p-4 sm:p-5 rounded-2xl bg-slate-50/80 border border-slate-200 space-y-3.5">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                <Receipt className="w-4 h-4 text-emerald-600" /> Ringkasan Pajak & Subtotal Barang
+                <Receipt className="w-4 h-4 text-emerald-600" /> Ringkasan Subtotal, Diskon & Pajak (PPN)
               </h4>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
