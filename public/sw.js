@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nota-photo-v2';
+const CACHE_NAME = 'nota-photo-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/manifest.json',
