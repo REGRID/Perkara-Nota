@@ -3,7 +3,7 @@ import { supabase } from "@/lib/supabase"
 import * as XLSX from "xlsx"
 
 const EXPORT_SELECT =
-  "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity, createdAt)"
+  "id, merchantName, date, subtotal, discountAmount, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity, createdAt)"
 
 export async function GET(req: NextRequest) {
   try {
@@ -164,6 +164,7 @@ export async function GET(req: NextRequest) {
       "Metode Pembayaran": r.paymentMethod || "Cash",
       "Status Pembayaran": r.paymentStatus || "Lunas",
       "Subtotal (Rp)": r.subtotal,
+      "Diskon (Rp)": r.discountAmount || 0,
       "Pajak / PPN (Rp)": r.taxAmount,
       "Total Netto (Rp)": r.totalAmount,
       "Jumlah Item": (r.items || []).length,

@@ -91,6 +91,7 @@ export interface ReceiptData {
   date: string
   imageUrl?: string | null
   subtotal?: number
+  discountAmount?: number
   taxAmount?: number
   totalAmount: number
   paymentMethod?: string
@@ -3633,6 +3634,12 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                     <span>Subtotal Barang</span>
                     <span>Rp {(selectedReceipt.subtotal || selectedReceipt.items.reduce((a, b) => a + b.price * b.quantity, 0)).toLocaleString("id-ID")}</span>
                   </div>
+                  {selectedReceipt.discountAmount ? (
+                    <div className="flex items-center justify-between text-rose-400">
+                      <span>Potongan Diskon</span>
+                      <span>- Rp {selectedReceipt.discountAmount.toLocaleString("id-ID")}</span>
+                    </div>
+                  ) : null}
                   {selectedReceipt.taxAmount ? (
                     <div className="flex items-center justify-between text-amber-400">
                       <span>Pajak (PPN)</span>

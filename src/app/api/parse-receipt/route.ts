@@ -16,6 +16,7 @@ export interface ParsedReceiptResult {
   merchantName: string
   date: string
   subtotal: number
+  discountAmount: number
   taxAmount: number
   totalAmount: number
   items: ParsedItem[]
@@ -167,10 +168,12 @@ PETUNJUK ANALISIS MULTIMODAL & ATURAN TERKATALOG:
    - PILIH "category" (Kategori Utama) HANYA DARI DAFTAR RESMI DI ATAS! (DILARANG menciptakan nama kategori baru).
    - PILIH "subCategory" HANYA DARI DAFTAR SUB-KATEGORI RESMI YANG SESUAI DI ATAS! (Jika tidak tertera, isi "Umum").
    - ABAIKAN baris non-barang (seperti nomor surat jalan, penerima, pengirim, disetujui oleh, hormat kami).
-5. PAJAK / PPN: Cari nilai PPN atau Pajak jika ada. Jika tidak ada, isi 0.
-6. SUBTOTAL & TOTAL NETTO AKHIR:
-   - "subtotal": Jumlah harga barang sebelum PPN.
-   - "totalAmount": Netto / Total Akhir pembayaran.
+5. DISKON / POTONGAN HARGA / PROMO: Cari nilai diskon, potongan harga, promo, atau voucher (baik dalam nominal Rp maupun persentase %). Konversi ke angka nominal murni dalam Rupiah (Rp). Jika tidak ada, isi 0.
+6. PAJAK / PPN: Cari nilai PPN atau Pajak jika ada. Jika tidak ada, isi 0.
+7. SUBTOTAL & TOTAL NETTO AKHIR:
+   - "subtotal": Jumlah harga barang sebelum diskon dan PPN.
+   - "discountAmount": Nominal potongan diskon dalam Rupiah.
+   - "totalAmount": Netto / Total Akhir pembayaran (Subtotal - Diskon + PPN).
 
 TEKS OCR PENDUKUNG:
 """
@@ -182,6 +185,7 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
   "merchantName": "Nama Toko / PT",
   "date": "YYYY-MM-DD",
   "subtotal": 1920000,
+  "discountAmount": 0,
   "taxAmount": 211200,
   "totalAmount": 2131205,
   "items": [
@@ -333,6 +337,7 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
     )
 
     parsedJson.subtotal = parseIndonesianPrice(String(parsedJson.subtotal))
+    parsedJson.discountAmount = parseIndonesianPrice(String(parsedJson.discountAmount || 0))
     parsedJson.taxAmount = parseIndonesianPrice(String(parsedJson.taxAmount))
     parsedJson.totalAmount = parseIndonesianPrice(String(parsedJson.totalAmount))
 
@@ -340,7 +345,7 @@ Keluarkan HANYA format JSON valid berikut tanpa markdown/penjelasan tambahan:
       parsedJson.subtotal = parsedJson.items.reduce((acc, it) => acc + it.price * it.quantity, 0)
     }
     if (!parsedJson.totalAmount) {
-      parsedJson.totalAmount = parsedJson.subtotal + parsedJson.taxAmount
+      parsedJson.totalAmount = Math.max(0, parsedJson.subtotal - parsedJson.discountAmount + parsedJson.taxAmount)
     }
 
     // Atomically increment quota counter in database & return real-time remaining count

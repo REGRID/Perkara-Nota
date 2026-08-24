@@ -429,7 +429,8 @@ export default function HomePage() {
     setParsedResult({
       merchantName: targetReceipt.merchantName,
       date: targetReceipt.date,
-      subtotal: targetReceipt.subtotal || targetReceipt.totalAmount - (targetReceipt.taxAmount || 0),
+      subtotal: targetReceipt.subtotal || targetReceipt.totalAmount - (targetReceipt.taxAmount || 0) + (targetReceipt.discountAmount || 0),
+      discountAmount: targetReceipt.discountAmount || 0,
       taxAmount: targetReceipt.taxAmount || 0,
       totalAmount: targetReceipt.totalAmount,
       items: (targetReceipt.items || []).map((it) => ({

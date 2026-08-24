@@ -300,6 +300,9 @@ export function VerificationSplitScreen({
   const [date, setDate] = useState(initialResult.date || new Date().toISOString().split("T")[0])
   const [items, setItems] = useState<ParsedItem[]>(initialResult.items || [])
   const [taxAmount, setTaxAmount] = useState<number | "">(initialResult.taxAmount ?? 0)
+  const [discountAmount, setDiscountAmount] = useState<number | "">(initialResult.discountAmount ?? 0)
+  const [discountType, setDiscountType] = useState<"RP" | "PERCENT">("RP")
+  const [discountPercentValue, setDiscountPercentValue] = useState<number | "">("")
   const [paymentMethod, setPaymentMethod] = useState<string>(existingPaymentMethod || "Cash")
   const [paymentStatus, setPaymentStatus] = useState<string>(existingPaymentStatus || "Lunas")
   const [paidByPerson, setPaidByPerson] = useState<string>(initialPaidBy)
@@ -347,12 +350,38 @@ export function VerificationSplitScreen({
     setDate(initialResult.date || new Date().toISOString().split("T")[0])
     setItems(initialResult.items || [])
     setTaxAmount(initialResult.taxAmount ?? 0)
+    setDiscountAmount(initialResult.discountAmount ?? 0)
     setErrorMsg("")
   }, [batchInfo?.currentIndex, editingReceiptId])
 
   // Auto-calculated subtotal from items
   const itemsSubtotal = items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0)
-  const calculatedTotal = itemsSubtotal + (Number(taxAmount) || 0)
+  const currentDiscountNum = Number(discountAmount) || 0
+  const currentTaxNum = Number(taxAmount) || 0
+  const calculatedTotal = Math.max(0, itemsSubtotal - currentDiscountNum + currentTaxNum)
+
+  // Handle percent discount calculation
+  const handleDiscountPercentChange = (percent: number | "") => {
+    setDiscountPercentValue(percent)
+    if (percent === "" || isNaN(Number(percent))) {
+      setDiscountAmount(0)
+    } else {
+      const calc = Math.round((itemsSubtotal * Number(percent)) / 100)
+      setDiscountAmount(calc)
+    }
+  }
+
+  const handleDiscountTypeChange = (type: "RP" | "PERCENT") => {
+    setDiscountType(type)
+    if (type === "PERCENT") {
+      if (discountPercentValue !== "") {
+        handleDiscountPercentChange(discountPercentValue)
+      } else if (itemsSubtotal > 0 && currentDiscountNum > 0) {
+        const pct = Math.round(((currentDiscountNum * 100) / itemsSubtotal) * 10) / 10
+        setDiscountPercentValue(pct)
+      }
+    }
+  }
 
   // Continuously sync edited form values to parent draft
   useEffect(() => {
@@ -362,7 +391,8 @@ export function VerificationSplitScreen({
           merchantName,
           date,
           subtotal: itemsSubtotal,
-          taxAmount: Number(taxAmount) || 0,
+          discountAmount: currentDiscountNum,
+          taxAmount: currentTaxNum,
           totalAmount: calculatedTotal,
           items,
         },
@@ -373,7 +403,7 @@ export function VerificationSplitScreen({
         }
       )
     }
-  }, [merchantName, date, items, taxAmount, calculatedTotal, itemsSubtotal, paymentMethod, paymentStatus, note, paidByPerson, onDraftUpdate])
+  }, [merchantName, date, items, discountAmount, currentDiscountNum, currentTaxNum, taxAmount, calculatedTotal, itemsSubtotal, paymentMethod, paymentStatus, note, paidByPerson, onDraftUpdate])
 
   // Item List Handlers
   const handleItemChange = (index: number, field: keyof ParsedItem, value: any) => {
@@ -440,7 +470,8 @@ export function VerificationSplitScreen({
           date,
           imageUrl: imagePreviewUrl || null,
           subtotal: itemsSubtotal,
-          taxAmount: Number(taxAmount) || 0,
+          discountAmount: currentDiscountNum,
+          taxAmount: currentTaxNum,
           totalAmount: calculatedTotal,
           paymentMethod,
           paymentStatus,
@@ -1035,7 +1066,7 @@ export function VerificationSplitScreen({
                 <Receipt className="w-4 h-4 text-emerald-600" /> Ringkasan Pajak & Subtotal Barang
               </h4>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-slate-600">Subtotal Barang (Rp)</label>
                   <input
@@ -1044,6 +1075,66 @@ export function VerificationSplitScreen({
                     readOnly
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-slate-100/90 font-mono"
                   />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-600 flex items-center gap-1">
+                      <Tag className="w-3 h-3 text-rose-500" /> Diskon / Potongan
+                    </label>
+                    <div className="flex items-center bg-slate-200/80 p-0.5 rounded-lg text-[10px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => handleDiscountTypeChange("RP")}
+                        className={`px-2 py-0.5 rounded-md transition-all ${
+                          discountType === "RP" ? "bg-white text-rose-600 shadow-xs" : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        Rp
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDiscountTypeChange("PERCENT")}
+                        className={`px-2 py-0.5 rounded-md transition-all ${
+                          discountType === "PERCENT" ? "bg-white text-rose-600 shadow-xs" : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        %
+                      </button>
+                    </div>
+                  </div>
+
+                  {discountType === "RP" ? (
+                    <input
+                      type="number"
+                      min="0"
+                      value={discountAmount === 0 ? 0 : (discountAmount ?? "")}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setDiscountAmount(val === "" ? "" : parseFloat(val))
+                      }}
+                      placeholder="0"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-rose-500 text-xs font-bold text-rose-600 bg-white font-mono"
+                    />
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={discountPercentValue}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          handleDiscountPercentChange(val === "" ? "" : parseFloat(val))
+                        }}
+                        placeholder="0"
+                        className="w-full px-3.5 py-2.5 pr-12 rounded-xl border border-slate-300 focus:border-rose-500 text-xs font-bold text-rose-600 bg-white font-mono"
+                      />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">
+                        %
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -1075,7 +1166,11 @@ export function VerificationSplitScreen({
               </div>
 
               <div className="pt-2.5 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-                <span>Subtotal: Rp {itemsSubtotal.toLocaleString("id-ID")} + PPN: Rp {(taxAmount || 0).toLocaleString("id-ID")}</span>
+                <span>
+                  Subtotal: Rp {itemsSubtotal.toLocaleString("id-ID")}
+                  {currentDiscountNum > 0 && ` - Diskon: Rp ${currentDiscountNum.toLocaleString("id-ID")}`}
+                  {` + PPN: Rp ${currentTaxNum.toLocaleString("id-ID")}`}
+                </span>
                 <span className="font-semibold text-emerald-400">Kalkulasi Presisi</span>
               </div>
             </div>

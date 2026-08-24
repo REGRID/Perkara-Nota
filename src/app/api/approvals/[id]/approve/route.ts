@@ -103,7 +103,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     } else if (actionType === "EDIT" && (pendingApproval.receiptId || payload.id)) {
       const targetReceiptId = pendingApproval.receiptId || payload.id
-      const { merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, items } = payload
+      const { merchantName, date, imageUrl, subtotal, discountAmount, taxAmount, totalAmount, paymentMethod, paymentStatus, note, items } = payload
       const compressedImageUrl = imageUrl ? await compressBase64Image(imageUrl) : null
 
       // Delete existing receipt items
@@ -117,6 +117,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         merchantName: merchantName || "Nota / Toko",
         date: date,
         subtotal: Number(subtotal) || 0,
+        discountAmount: Number(discountAmount) || 0,
         taxAmount: Number(taxAmount) || 0,
         totalAmount: Number(totalAmount) || 0,
         paymentMethod: paymentMethod || "Cash",
