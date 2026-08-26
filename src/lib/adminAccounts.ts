@@ -4,7 +4,9 @@ import path from "path"
 
 export const DEFAULT_ADMINS = [
   { username: "rama", defaultPass: process.env.ADMIN_A_PASSWORD || "", role: "ADMIN" },
+  { username: "admin1", defaultPass: process.env.ADMIN_A_PASSWORD || "", role: "ADMIN" },
   { username: "refo", defaultPass: process.env.ADMIN_B_PASSWORD || "", role: "ADMIN" },
+  { username: "admin2", defaultPass: process.env.ADMIN_B_PASSWORD || "", role: "ADMIN" },
   { username: "karyawan", defaultPass: process.env.KARYAWAN_PASSWORD || "", role: "KARYAWAN" },
 ]
 
@@ -52,21 +54,21 @@ function updateEnvFilePassword(username: string, newPass: string) {
   try {
     const cleanUser = username.trim().toLowerCase()
 
-    if (cleanUser === "rama" || cleanUser === (process.env.ADMIN_A_USERNAME || "rama").toLowerCase()) {
+    if (cleanUser === "rama" || cleanUser === "admin1" || cleanUser === (process.env.ADMIN_A_USERNAME || "rama").toLowerCase()) {
       process.env.ADMIN_A_PASSWORD = newPass
     }
-    if (cleanUser === "refo" || cleanUser === (process.env.ADMIN_B_USERNAME || "refo").toLowerCase()) {
+    if (cleanUser === "refo" || cleanUser === "admin2" || cleanUser === (process.env.ADMIN_B_USERNAME || "refo").toLowerCase()) {
       process.env.ADMIN_B_PASSWORD = newPass
     }
 
     const envPath = path.join(process.cwd(), ".env.local")
     if (fs.existsSync(envPath)) {
       let content = fs.readFileSync(envPath, "utf-8")
-      if (cleanUser === "rama" || cleanUser === (process.env.ADMIN_A_USERNAME || "rama").toLowerCase()) {
+      if (cleanUser === "rama" || cleanUser === "admin1" || cleanUser === (process.env.ADMIN_A_USERNAME || "rama").toLowerCase()) {
         content = content.replace(/ADMIN_A_PASSWORD=["'][^"']*["']/g, `ADMIN_A_PASSWORD="${newPass}"`)
         content = content.replace(/ADMIN_A_PASSWORD=[^\r\n]+/g, `ADMIN_A_PASSWORD="${newPass}"`)
       }
-      if (cleanUser === "refo" || cleanUser === (process.env.ADMIN_B_USERNAME || "refo").toLowerCase()) {
+      if (cleanUser === "refo" || cleanUser === "admin2" || cleanUser === (process.env.ADMIN_B_USERNAME || "refo").toLowerCase()) {
         content = content.replace(/ADMIN_B_PASSWORD=["'][^"']*["']/g, `ADMIN_B_PASSWORD="${newPass}"`)
         content = content.replace(/ADMIN_B_PASSWORD=[^\r\n]+/g, `ADMIN_B_PASSWORD="${newPass}"`)
       }
@@ -78,12 +80,14 @@ function updateEnvFilePassword(username: string, newPass: string) {
 }
 
 /**
- * Fetch active password for a given admin username (rama / refo).
+ * Fetch active password for a given admin username (rama / refo / admin1 / admin2).
  * Supabase `admin_accounts` table is the PRIMARY source of truth.
  */
 export async function getAdminPassword(username: string): Promise<string | null> {
   try {
-    const cleanUser = username.trim().toLowerCase()
+    let cleanUser = username.trim().toLowerCase()
+    if (cleanUser === "admin1") cleanUser = "rama"
+    if (cleanUser === "admin2") cleanUser = "refo"
 
     // 1. Primary: Check Supabase Database Table `admin_accounts`
     try {
@@ -155,7 +159,10 @@ export async function validateAdminCredentials(username: string, inputPass: stri
  */
 export async function getUserAccountDetails(username: string): Promise<{ username: string; role: string; password?: string } | null> {
   try {
-    const cleanUser = username.trim().toLowerCase()
+    let cleanUser = username.trim().toLowerCase()
+    if (cleanUser === "admin1") cleanUser = "rama"
+    if (cleanUser === "admin2") cleanUser = "refo"
+
     const { data: dbAccount } = await supabase
       .from("admin_accounts")
       .select("username, password, role")

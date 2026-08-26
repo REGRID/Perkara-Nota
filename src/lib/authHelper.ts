@@ -3,7 +3,8 @@ import { NextRequest } from "next/server"
 export function getAdminUserFromRequest(req: NextRequest): string {
   const customUserHeader = req.headers.get("x-admin-user")
   if (customUserHeader && customUserHeader.trim()) {
-    return customUserHeader.trim().toLowerCase()
+    const u = customUserHeader.trim().toLowerCase()
+    return u === "admin1" ? "rama" : u === "admin2" ? "refo" : u
   }
 
   const sessionCookie = req.cookies.get("nota_admin_session")?.value
@@ -16,7 +17,8 @@ export function getAdminUserFromRequest(req: NextRequest): string {
     const decoded = Buffer.from(currentToken, "base64").toString("utf-8")
     const parts = decoded.split(":")
     if (parts.length >= 1 && parts[0] && parts[0].trim()) {
-      return parts[0].trim().toLowerCase()
+      const u = parts[0].trim().toLowerCase()
+      return u === "admin1" ? "rama" : u === "admin2" ? "refo" : u
     }
   } catch (err) {
     // Ignore error
@@ -33,7 +35,7 @@ export function getAdminRoleFromRequest(req: NextRequest): string {
 
   const user = getAdminUserFromRequest(req)
   if (user === "karyawan") return "KARYAWAN"
-  if (user === "rama" || user === "refo") return "ADMIN"
+  if (user === "rama" || user === "refo" || user === "admin1" || user === "admin2" || user === "admin") return "ADMIN"
 
   return user ? "ADMIN" : "KARYAWAN"
 }

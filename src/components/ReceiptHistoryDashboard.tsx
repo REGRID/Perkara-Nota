@@ -4052,14 +4052,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                   </div>
 
                   {pendingApprovals.map((reqItem) => {
-                    const isSelfRequest = (reqItem.requestedBy || "").trim().toLowerCase() === (currentAdminUser || "").trim().toLowerCase()
+                    const isDestructive = reqItem.actionType === "DELETE" || reqItem.actionType === "BULK_DELETE" || reqItem.actionType === "EDIT"
+                    const isSelfRequest = isDestructive && (reqItem.requestedBy || "").trim().toLowerCase() === (currentAdminUser || "").trim().toLowerCase()
                     let payloadObj: any = {}
                     try {
                       payloadObj = JSON.parse(reqItem.payload || "{}")
                     } catch {}
 
                     const targetReceipt = reqItem.receipt || null
-                    const receiptImage = targetReceipt?.imageUrl || payloadObj.imageUrl || approvalImageUrls[reqItem.receiptId] || null
                     const isExpanded = expandedApprovalId === reqItem.id
 
                     const merchantNameDisplay = targetReceipt
@@ -4097,13 +4097,16 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                           >
                             <span
                               className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0 ${
-                                reqItem.actionType === "DELETE" || reqItem.actionType === "BULK_DELETE"
+                                reqItem.actionType === "CREATE"
+                                  ? "bg-purple-100 text-purple-800 border border-purple-200"
+                                  : reqItem.actionType === "DELETE" || reqItem.actionType === "BULK_DELETE"
                                   ? "bg-red-100 text-red-700 border border-red-200"
                                   : reqItem.actionType === "SETTLE" || reqItem.actionType === "BULK_SETTLE"
                                   ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
                                   : "bg-blue-100 text-blue-800 border border-blue-200"
                               }`}
                             >
+                              {reqItem.actionType === "CREATE" && "NOTA BARU"}
                               {reqItem.actionType === "DELETE" && "HAPUS"}
                               {reqItem.actionType === "BULK_DELETE" && `HAPUS MASSAL (${payloadObj.ids?.length || 0})`}
                               {reqItem.actionType === "EDIT" && "EDIT"}
@@ -4147,91 +4150,205 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
                           {/* Quick Actions */}
                           <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 w-full sm:w-auto justify-end">
-                            {isSelfRequest ? (
-                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
-                                Self-Approval Dilarang
-                              </span>
-                            ) : (
-                              <>
-                                <button
-                                  type="button"
-                                  disabled={isProcessingApproval}
-                                  onClick={() => handleRejectRequest(reqItem.id)}
-                                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 font-bold text-xs transition-all disabled:opacity-50"
-                                >
-                                  Tolak
-                                </button>
+                            {(() => {
+                              const cleanCurr = (currentAdminUser || "").trim().toLowerCase()
+                              const isRamaAdmin1 = cleanCurr === "rama" || cleanCurr === "admin1"
 
-                                <button
-                                  type="button"
-                                  disabled={isProcessingApproval}
-                                  onClick={() => handleApproveRequest(reqItem.id)}
-                                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold text-xs transition-all shadow-2xs active:scale-95 disabled:opacity-50 flex items-center gap-1"
-                                >
-                                  {isProcessingApproval ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
-                                  Setujui
-                                </button>
-                              </>
-                            )}
+                              if (reqItem.actionType === "CREATE" && !isRamaAdmin1) {
+                                return (
+                                  <span
+                                    className="text-[10px] font-extrabold text-purple-900 bg-purple-100 px-2.5 py-1 rounded-lg border border-purple-200 flex items-center gap-1"
+                                    title="Persetujuan pengajuan nota baru hanya dapat dilakukan oleh Admin 1 (Rama)"
+                                  >
+                                    <ShieldCheck className="w-3 h-3 text-purple-700" /> Khusus Admin 1 (Rama)
+                                  </span>
+                                )
+                              }
+
+                              if (isSelfRequest) {
+                                return (
+                                  <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                                    Self-Approval Dilarang
+                                  </span>
+                                )
+                              }
+
+                              return (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={isProcessingApproval}
+                                    onClick={() => handleRejectRequest(reqItem.id)}
+                                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 font-bold text-xs transition-all disabled:opacity-50"
+                                  >
+                                    Tolak
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={isProcessingApproval}
+                                    onClick={() => handleApproveRequest(reqItem.id)}
+                                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold text-xs transition-all shadow-2xs active:scale-95 disabled:opacity-50 flex items-center gap-1"
+                                  >
+                                    {isProcessingApproval ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                    Setujui
+                                  </button>
+                                </>
+                              )
+                            })()}
                           </div>
                         </div>
 
                         {/* EXPANDABLE ACCORDION DETAIL (Only Shown When Clicked) */}
                         {isExpanded && (
                           <div className="p-4 bg-slate-50/90 border-t border-slate-200 space-y-3 text-xs animate-in fade-in zoom-in-98 duration-150">
-                            {/* DAFTAR NOTA YANG DIAJUKAN (Compact List) */}
-                            <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-2xs">
-                              <div className="flex items-center justify-between text-xs font-bold text-slate-800 border-b border-slate-100 pb-2">
-                                <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] font-extrabold text-slate-900">
-                                  <ReceiptIcon className="w-4 h-4 text-emerald-600" />
-                                  Daftar Nota ({targetReceiptsList.length > 0 ? targetReceiptsList.length : targetIds.length} Nota)
-                                </span>
-                                <span className="text-[10.5px] font-semibold text-slate-400">
-                                  Klik baris nota untuk membuka detail
-                                </span>
-                              </div>
+                            {/* RINCIAN NOTA BARU (CREATE) */}
+                            {reqItem.actionType === "CREATE" && (
+                              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3 text-xs shadow-2xs">
+                                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                  <span className="font-extrabold text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                                    <ReceiptIcon className="w-3.5 h-3.5 text-purple-600" /> Rincian Pengajuan Nota Baru:
+                                  </span>
+                                  <span className="text-[10.5px] font-bold text-purple-800 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                                    Menunggu Persetujuan Admin
+                                  </span>
+                                </div>
 
-                              {targetReceiptsList.length > 0 ? (
-                                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
-                                  {targetReceiptsList.map((r, rIdx) => (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11.5px]">
+                                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
+                                    <span className="font-extrabold text-slate-700 block text-[10.5px]">Nama Toko / Merchant:</span>
+                                    <span className="font-bold text-slate-900 text-sm block">{payloadObj.merchantName || "Nota / Toko"}</span>
+                                    <span className="text-slate-500 font-medium text-[11px] block">Tanggal: {payloadObj.date || "-"}</span>
+                                  </div>
+
+                                  <div className="p-2.5 rounded-xl bg-purple-50/70 border border-purple-200/80 space-y-1">
+                                    <span className="font-extrabold text-purple-900 block text-[10.5px]">Total Nominal Nota:</span>
+                                    <span className="font-black font-mono text-purple-900 text-base block">
+                                      Rp {Number(payloadObj.totalAmount || 0).toLocaleString("id-ID")}
+                                    </span>
+                                    <span className="text-purple-700 font-semibold text-[11px] block">
+                                      Metode: {payloadObj.paymentMethod || "Cash"} • {payloadObj.paymentStatus || "Lunas"}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {payloadObj.note && (
+                                  <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 text-[11.5px] text-amber-950 flex items-start gap-2">
+                                    <FileText className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                                    <div>
+                                      <span className="font-extrabold block">Catatan Nota:</span>
+                                      <span>{payloadObj.note}</span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Foto Struk Nota Fisik */}
+                                {payloadObj.imageUrl && (
+                                  <div className="space-y-1.5">
+                                    <span className="font-extrabold text-slate-800 flex items-center gap-1 text-[11px]">
+                                      <ImageIcon className="w-3.5 h-3.5 text-purple-600" /> Foto Struk / Nota Fisik:
+                                    </span>
                                     <div
-                                      key={r.id || rIdx}
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        setSelectedReceipt(r)
-                                      }}
-                                      className="p-2.5 rounded-xl bg-slate-50 hover:bg-emerald-50/70 border border-slate-200/80 hover:border-emerald-300 transition-all cursor-pointer flex items-center justify-between gap-2 group"
+                                      onClick={() => setLightboxImageUrl(payloadObj.imageUrl)}
+                                      className="relative max-h-52 overflow-hidden rounded-xl bg-slate-900 flex items-center justify-center cursor-zoom-in p-1 border border-purple-300 group"
                                     >
-                                      <div className="min-w-0 flex-1 space-y-0.5">
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-extrabold text-slate-900 text-xs truncate group-hover:text-emerald-900">
-                                            {r.merchantName || "Nota Tanpa Nama"}
-                                          </span>
-                                          <span className="text-[10px] font-mono text-slate-400 shrink-0">
-                                            {r.date}
-                                          </span>
-                                        </div>
-                                        <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap">
-                                          <span>Metode: <strong>{r.paymentMethod}</strong></span>
-                                          {r.note && <span className="truncate max-w-[180px] text-slate-400">({r.note})</span>}
-                                        </div>
-                                      </div>
-
-                                      <div className="text-right shrink-0 flex items-center gap-2">
-                                        <span className="font-black font-mono text-emerald-700 text-xs">
-                                          Rp {r.totalAmount.toLocaleString("id-ID")}
-                                        </span>
-                                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+                                      {/* eslint-disable-next-html-element */}
+                                      <img
+                                        src={payloadObj.imageUrl}
+                                        alt="Foto Nota Fisik"
+                                        className="max-h-48 object-contain rounded-lg shadow-md group-hover:opacity-90 transition-opacity"
+                                      />
+                                      <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-bold text-xs">
+                                        Klik Untuk Membuka Foto Struk
                                       </div>
                                     </div>
-                                  ))}
+                                  </div>
+                                )}
+
+                                {/* Rincian Item Produk */}
+                                {payloadObj.items && Array.isArray(payloadObj.items) && payloadObj.items.length > 0 && (
+                                  <div className="space-y-1.5">
+                                    <span className="font-extrabold text-slate-800 flex items-center gap-1 text-[11px]">
+                                      <Tag className="w-3.5 h-3.5 text-purple-600" /> Rincian Item Produk ({payloadObj.items.length} Item):
+                                    </span>
+                                    <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
+                                      {payloadObj.items.map((it: any, itIdx: number) => (
+                                        <div
+                                          key={itIdx}
+                                          className="p-2 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between text-[11px]"
+                                        >
+                                          <div className="min-w-0 flex-1">
+                                            <span className="font-extrabold text-slate-900 block truncate">{it.name}</span>
+                                            <span className="text-[10px] text-slate-500 font-medium">
+                                              {it.category || "Lain-lain"}{it.subCategory ? ` / ${it.subCategory}` : ""} • {it.quantity || 1}x @ Rp {Number(it.price || 0).toLocaleString("id-ID")}
+                                            </span>
+                                          </div>
+                                          <span className="font-mono font-bold text-purple-900 shrink-0 ml-2">
+                                            Rp {Number((it.price || 0) * (it.quantity || 1)).toLocaleString("id-ID")}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* DAFTAR NOTA YANG DIAJUKAN (HANYA UNTUK EDIT / DELETE / SETTLE) */}
+                            {reqItem.actionType !== "CREATE" && (
+                              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-2xs">
+                                <div className="flex items-center justify-between text-xs font-bold text-slate-800 border-b border-slate-100 pb-2">
+                                  <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] font-extrabold text-slate-900">
+                                    <ReceiptIcon className="w-4 h-4 text-emerald-600" />
+                                    Daftar Nota ({targetReceiptsList.length > 0 ? targetReceiptsList.length : targetIds.length} Nota)
+                                  </span>
+                                  <span className="text-[10.5px] font-semibold text-slate-400">
+                                    Klik baris nota untuk membuka detail
+                                  </span>
                                 </div>
-                              ) : (
-                                <div className="p-3 bg-slate-50 rounded-xl text-center text-xs text-slate-600 border border-slate-200/80 flex items-center justify-between">
-                                  <span>Target Nota: <strong>{merchantNameDisplay}</strong></span>
-                                </div>
-                              )}
-                            </div>
+
+                                {targetReceiptsList.length > 0 ? (
+                                  <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
+                                    {targetReceiptsList.map((r, rIdx) => (
+                                      <div
+                                        key={r.id || rIdx}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setSelectedReceipt(r)
+                                        }}
+                                        className="p-2.5 rounded-xl bg-slate-50 hover:bg-emerald-50/70 border border-slate-200/80 hover:border-emerald-300 transition-all cursor-pointer flex items-center justify-between gap-2 group"
+                                      >
+                                        <div className="min-w-0 flex-1 space-y-0.5">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-extrabold text-slate-900 text-xs truncate group-hover:text-emerald-900">
+                                              {r.merchantName || "Nota Tanpa Nama"}
+                                            </span>
+                                            <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                                              {r.date}
+                                            </span>
+                                          </div>
+                                          <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap">
+                                            <span>Metode: <strong>{r.paymentMethod}</strong></span>
+                                            {r.note && <span className="truncate max-w-[180px] text-slate-400">({r.note})</span>}
+                                          </div>
+                                        </div>
+
+                                        <div className="text-right shrink-0 flex items-center gap-2">
+                                          <span className="font-black font-mono text-emerald-700 text-xs">
+                                            Rp {r.totalAmount.toLocaleString("id-ID")}
+                                          </span>
+                                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="p-3 bg-slate-50 rounded-xl text-center text-xs text-slate-600 border border-slate-200/80 flex items-center justify-between">
+                                    <span>Target Nota: <strong>{merchantNameDisplay}</strong></span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
 
                             {/* RINCIAN PERUBAHAN EDIT DATA (HANYA FIELD YANG BERUBAH) */}
                             {reqItem.actionType === "EDIT" && (() => {

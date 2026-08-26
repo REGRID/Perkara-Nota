@@ -461,7 +461,7 @@ export function VerificationSplitScreen({
       }
 
       if (data.pendingApproval) {
-        alert(data.message || "Permintaan edit nota berhasil diajukan! Menunggu verifikasi dari admin lain.")
+        alert(data.message || (editingReceiptId ? "Permintaan edit nota berhasil diajukan! Menunggu verifikasi dari admin lain." : "Nota berhasil diajukan! Menunggu persetujuan (approval) oleh Admin (Rama / Admin 1)."))
       }
 
       onSaveSuccess()
