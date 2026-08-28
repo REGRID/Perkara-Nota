@@ -104,6 +104,7 @@ export async function POST(req: NextRequest) {
                 date: r.date,
                 imageUrl: r.imageUrl || null,
                 subtotal: Number(r.subtotal) || 0,
+                discountAmount: Number(r.discountAmount) || 0,
                 taxAmount: Number(r.taxAmount) || 0,
                 totalAmount: Number(r.totalAmount) || 0,
                 paymentMethod: r.paymentMethod || "Cash",

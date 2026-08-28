@@ -10,7 +10,7 @@ import { compressBase64Image } from "@/lib/imageCompressor"
 import { queryPg } from "@/lib/pgDb"
 
 const SINGLE_RECEIPT_SELECT =
-  "id, merchantName, date, imageUrl, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity)"
+  "id, merchantName, date, imageUrl, subtotal, discountAmount, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity)"
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> | { id: string } }) {
   try {
@@ -48,6 +48,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             r.date, 
             r."imageUrl", 
             r.subtotal, 
+            r."discountAmount", 
             r."taxAmount", 
             r."totalAmount", 
             r."paymentMethod", 
@@ -254,7 +255,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       `UPDATE receipts 
        SET "imageUrl" = $1, "updatedAt" = now() 
        WHERE id = $2 
-       RETURNING id, "merchantName", date, "imageUrl", subtotal, "taxAmount", "totalAmount", "paymentMethod", "paymentStatus", note, "staffName", "createdAt", "updatedAt"`,
+       RETURNING id, "merchantName", date, "imageUrl", subtotal, "discountAmount", "taxAmount", "totalAmount", "paymentMethod", "paymentStatus", note, "staffName", "createdAt", "updatedAt"`,
       [compressedImageUrl, id]
     )
 

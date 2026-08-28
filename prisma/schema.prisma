@@ -14,6 +14,7 @@ model Receipt {
   date             String            // YYYY-MM-DD format
   imageUrl         String?           @db.Text
   subtotal         Float             @default(0)
+  discountAmount   Float             @default(0)
   taxAmount        Float             @default(0)
   totalAmount      Float             @default(0)
   paymentMethod    String            @default("Cash") // Cash, Transfer Bank, QRIS, Kredit / Debit, Tempo / Hutang

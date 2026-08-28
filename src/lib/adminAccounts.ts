@@ -10,6 +10,13 @@ export const DEFAULT_ADMINS = [
   { username: "karyawan", defaultPass: process.env.KARYAWAN_PASSWORD || "", role: "KARYAWAN" },
 ]
 
+export function normalizeAdminUsername(input: string): string {
+  const clean = (input || "").trim().toLowerCase()
+  if (clean === "admin 1" || clean === "admin1" || clean === "admin_1" || clean === "admin 1 (rama)") return "rama"
+  if (clean === "admin 2" || clean === "admin2" || clean === "admin_2" || clean === "admin 2 (refo)") return "refo"
+  return clean
+}
+
 const LOCAL_PASSWORDS_FILE = path.join(process.cwd(), "admin_passwords.json")
 const IN_MEMORY_PASSWORDS = new Map<string, string>()
 
@@ -85,9 +92,7 @@ function updateEnvFilePassword(username: string, newPass: string) {
  */
 export async function getAdminPassword(username: string): Promise<string | null> {
   try {
-    let cleanUser = username.trim().toLowerCase()
-    if (cleanUser === "admin1") cleanUser = "rama"
-    if (cleanUser === "admin2") cleanUser = "refo"
+    const cleanUser = normalizeAdminUsername(username)
 
     // 1. Primary: Check Supabase Database Table `admin_accounts`
     try {
@@ -138,7 +143,7 @@ export async function getAdminPassword(username: string): Promise<string | null>
  */
 export async function validateAdminCredentials(username: string, inputPass: string): Promise<boolean> {
   try {
-    const cleanUser = username.trim().toLowerCase()
+    const cleanUser = normalizeAdminUsername(username)
     const cleanPass = inputPass.trim()
 
     if (!cleanUser || !cleanPass) return false
@@ -159,10 +164,7 @@ export async function validateAdminCredentials(username: string, inputPass: stri
  */
 export async function getUserAccountDetails(username: string): Promise<{ username: string; role: string; password?: string } | null> {
   try {
-    let cleanUser = username.trim().toLowerCase()
-    if (cleanUser === "admin1") cleanUser = "rama"
-    if (cleanUser === "admin2") cleanUser = "refo"
-
+    const cleanUser = normalizeAdminUsername(username)
     const { data: dbAccount } = await supabase
       .from("admin_accounts")
       .select("username, password, role")
@@ -200,7 +202,7 @@ export async function getUserAccountDetails(username: string): Promise<{ usernam
  */
 export async function updateAdminPassword(username: string, newPass: string): Promise<boolean> {
   try {
-    const cleanUser = username.trim().toLowerCase()
+    const cleanUser = normalizeAdminUsername(username)
     const cleanPass = newPass.trim()
 
     if (!cleanUser || !cleanPass) return false

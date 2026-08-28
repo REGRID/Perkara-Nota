@@ -10,7 +10,7 @@ import { invalidateNotificationsCache } from "@/app/api/notifications/route"
 import { queryPg } from "@/lib/pgDb"
 
 const RECEIPT_LIST_SELECT =
-  "id, merchantName, date, subtotal, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity)"
+  "id, merchantName, date, subtotal, discountAmount, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, createdAt, updatedAt, items:receipt_items(id, name, category, subCategory, price, quantity)"
 
 let listCache: { key: string; data: any; timestamp: number } | null = null
 const LIST_CACHE_TTL = 5000 // 5 seconds cache
@@ -47,13 +47,14 @@ export async function GET(req: NextRequest) {
           r.id, 
           r."merchantName", 
           r.date, 
-          r.subtotal, 
-          r."taxAmount", 
-          r."totalAmount", 
-          r."paymentMethod", 
-          r."paymentStatus", 
-          r.note, 
-          r."staffName", 
+          r.subtotal,
+          r."discountAmount",
+          r."taxAmount",
+          r."totalAmount",
+          r."paymentMethod",
+          r."paymentStatus",
+          r.note,
+          r."staffName",
           r."createdAt", 
           r."updatedAt",
           COALESCE(
@@ -193,6 +194,7 @@ export async function POST(req: NextRequest) {
       merchantName,
       date,
       subtotal = 0,
+      discountAmount = 0,
       taxAmount = 0,
       totalAmount = 0,
       paymentMethod = "Cash",
@@ -251,6 +253,7 @@ export async function POST(req: NextRequest) {
       date: date || new Date().toISOString().split("T")[0],
       imageUrl: compressedImageUrl,
       subtotal: Number(subtotal) || 0,
+      discountAmount: Number(body.discountAmount) || 0,
       taxAmount: Number(taxAmount) || 0,
       totalAmount: Number(totalAmount) || 0,
       paymentMethod: paymentMethod || "Cash",
