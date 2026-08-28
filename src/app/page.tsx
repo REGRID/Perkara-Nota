@@ -11,8 +11,10 @@ import { ParsedReceiptResult } from "@/app/api/parse-receipt/route"
 import { Camera, History, ShieldCheck, CheckCircle2, Maximize2, LogOut, UserCheck, Loader2, Settings } from "lucide-react"
 
 import { registerPushSubscription } from "@/lib/pwaNotification"
+import { useAppDialog } from "@/components/ui/app-dialog"
 
 export default function HomePage() {
+  const { showAlert } = useAppDialog()
   // Admin Auth Gate State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const [adminUser, setAdminUser] = useState<string>("rama")
@@ -378,7 +380,7 @@ export default function HomePage() {
       }
       console.error("Scanning Error:", err)
       if (!quotaError) {
-        alert(`Gagal memproses nota #${index + 1}: ${err.message || "Kesalahan server"}`)
+        showAlert({ title: "Gagal Memproses Nota", description: `Gagal memproses nota #${index + 1}: ${err.message || "Kesalahan server"}`, variant: "destructive" })
       }
       setImagePreviewUrl(null)
     } finally {

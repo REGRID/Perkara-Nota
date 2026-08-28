@@ -23,6 +23,7 @@ import {
 } from "lucide-react"
 import { rotateImageBase64, compressImageBase64 } from "@/lib/ocr"
 import { ImageInteractiveLightbox } from "@/components/ImageInteractiveLightbox"
+import { useAppDialog } from "@/components/ui/app-dialog"
 
 export interface BatchFileItem {
   file: File
@@ -44,10 +45,11 @@ export function ReceiptImageUpload({
   onBatchSelected,
   onCancelScan,
   isProcessing,
-  ocrProgressStatus,
+  ocrProgressStatus = "",
   ocrProgressPercent = 0,
-  quotaError,
+  quotaError = null,
 }: ReceiptImageUploadProps) {
+  const { showAlert } = useAppDialog()
   const [isDragOver, setIsDragOver] = useState(false)
 
   // Single or Batch Files State
@@ -121,7 +123,7 @@ export function ReceiptImageUpload({
   const processFiles = async (files: File[]) => {
     const validImages = files.filter((f) => f.type.startsWith("image/"))
     if (validImages.length === 0) {
-      alert("Harap pilih file gambar (JPG, PNG, WEBP, HEIC)")
+      showAlert({ title: "Format Tidak Didukung", description: "Harap pilih file gambar (JPG, PNG, WEBP, HEIC)", variant: "warning" })
       return
     }
 

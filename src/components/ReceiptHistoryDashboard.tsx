@@ -73,6 +73,8 @@ import { ImageInteractiveLightbox } from "@/components/ImageInteractiveLightbox"
 import { getAuthHeaders } from "@/lib/authClient"
 import { requestNotificationPermission, sendNativeOSNotification } from "@/lib/pwaNotification"
 import { compressImageBase64 } from "@/lib/ocr"
+import { useAppDialog } from "@/components/ui/app-dialog"
+import { toast } from "sonner"
 
 export interface ReceiptItem {
   id: string
@@ -136,6 +138,7 @@ interface ReceiptHistoryDashboardProps {
 }
 
 export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, currentAdminUser = "" }: ReceiptHistoryDashboardProps) {
+  const { showAlert, showConfirm } = useAppDialog()
   const [allReceipts, setAllReceipts] = useState<ReceiptData[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -264,16 +267,16 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
           const newUrl = data.receipt?.imageUrl || compressed
           setSelectedReceipt((prev) => (prev && prev.id === selectedReceipt.id ? { ...prev, imageUrl: newUrl } : prev))
           setAllReceipts((prev) => prev.map((r) => (r.id === selectedReceipt.id ? { ...r, imageUrl: newUrl } : r)))
-          alert("Foto nota berhasil diunggah dan disimpan!")
+          toast.success("Foto nota berhasil diunggah dan disimpan!")
         } else {
-          alert("Gagal mengunggah foto nota ke server.")
+          showAlert({ title: "Gagal Mengunggah", description: "Gagal mengunggah foto nota ke server.", variant: "destructive" })
         }
         setIsUploadingPhoto(false)
       }
       reader.readAsDataURL(file)
     } catch (err) {
       console.error("Upload receipt photo error:", err)
-      alert("Terjadi kesalahan saat memproses gambar.")
+      showAlert({ title: "Kesalahan Gambar", description: "Terjadi kesalahan saat memproses gambar.", variant: "destructive" })
       setIsUploadingPhoto(false)
     }
   }
@@ -446,7 +449,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       )
 
       if (selectedObjList.length === 0) {
-        alert("Nota yang Anda pilih sudah berstatus Sudah Dilunasi.")
+        showAlert({ title: "Sudah Dilunasi", description: "Nota yang Anda pilih sudah berstatus Sudah Dilunasi.", variant: "info" })
         return
       }
 
@@ -461,7 +464,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     // If no receipts are checkmarked, target the single clicked receipt!
     if (clickedReceipt) {
       if (isReceiptSettled(clickedReceipt.paymentStatus)) {
-        alert("Nota ini sudah berstatus Sudah Dilunasi.")
+        showAlert({ title: "Sudah Dilunasi", description: "Nota ini sudah berstatus Sudah Dilunasi.", variant: "info" })
         return
       }
 
@@ -547,14 +550,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       })
       const data = await res.json()
       if (!res.ok) {
-        alert(data.error || "Gagal menyetujui perubahan.")
+        showAlert({ title: "Gagal Menyetujui", description: data.error || "Gagal menyetujui perubahan.", variant: "destructive" })
       } else {
-        alert(data.message || "Perubahan berhasil diverifikasi dan diterapkan.")
+        showAlert({ title: "Persetujuan Berhasil", description: data.message || "Perubahan berhasil diverifikasi dan diterapkan.", variant: "success" })
         await fetchPendingApprovals()
         await fetchAllReceipts(true)
       }
     } catch (err: any) {
-      alert(err.message || "Terjadi kesalahan saat menyetujui verifikasi.")
+      showAlert({ title: "Kesalahan Sistem", description: err.message || "Terjadi kesalahan saat menyetujui verifikasi.", variant: "destructive" })
     } finally {
       setIsProcessingApproval(false)
     }
@@ -570,21 +573,29 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       })
       const data = await res.json()
       if (!res.ok) {
-        alert(data.error || "Gagal menolak perubahan.")
+        showAlert({ title: "Gagal Menolak", description: data.error || "Gagal menolak perubahan.", variant: "destructive" })
       } else {
-        alert(data.message || "Permintaan perubahan telah ditolak.")
+        showAlert({ title: "Permintaan Ditolak", description: data.message || "Permintaan perubahan telah ditolak.", variant: "warning" })
         setRejectionReason("")
         await fetchPendingApprovals()
       }
     } catch (err: any) {
-      alert(err.message || "Terjadi kesalahan saat menolak verifikasi.")
+      showAlert({ title: "Kesalahan Sistem", description: err.message || "Terjadi kesalahan saat menolak verifikasi.", variant: "destructive" })
     } finally {
       setIsProcessingApproval(false)
     }
   }
 
   const handleSettleReceiptRequest = async (receipt: ReceiptData) => {
-    if (!confirm(`Ajukan pelunasan untuk Nota ${receipt.merchantName} (Rp ${receipt.totalAmount.toLocaleString("id-ID")})?`)) return
+    const confirmed = await showConfirm({
+      title: "Ajukan Pelunasan Nota?",
+      description: `Apakah Anda ingin mengajukan pelunasan untuk Nota "${receipt.merchantName}" sebesar Rp ${receipt.totalAmount.toLocaleString("id-ID")}?`,
+      confirmText: "Ajukan Pelunasan",
+      cancelText: "Batal",
+      variant: "default",
+    })
+    if (!confirmed) return
+
     try {
       const res = await fetch("/api/approvals", {
         method: "POST",
@@ -597,13 +608,13 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       })
       const data = await res.json()
       if (!res.ok) {
-        alert(data.error || "Gagal mengajukan pelunasan nota.")
+        showAlert({ title: "Gagal Mengajukan Pelunasan", description: data.error || "Gagal mengajukan pelunasan nota.", variant: "destructive" })
       } else {
-        alert(data.message || "Permintaan pelunasan nota berhasil diajukan. Menunggu verifikasi dari admin lain.")
+        showAlert({ title: "Pengajuan Terkirim", description: data.message || "Permintaan pelunasan nota berhasil diajukan. Menunggu verifikasi dari admin lain.", variant: "success" })
         await fetchPendingApprovals()
       }
     } catch (err: any) {
-      alert(err.message || "Terjadi kesalahan saat mengajukan pelunasan.")
+      showAlert({ title: "Kesalahan Sistem", description: err.message || "Terjadi kesalahan saat mengajukan pelunasan.", variant: "destructive" })
     }
   }
 
@@ -631,7 +642,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     })
 
     if (unsettledForPerson.length === 0) {
-      alert(`Tidak ada nota yang belum direimburse / tempo untuk ${personName}.`)
+      showAlert({ title: "Tidak Ada Nota Tempo", description: `Tidak ada nota yang belum direimburse / tempo untuk ${personName}.`, variant: "info" })
       return
     }
 
@@ -656,7 +667,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   const handleSubmitSettleWithProof = async () => {
     if (settleTargetReceipts.length === 0) return
     if (!paymentProofImage) {
-      alert("Wajib mengunggah / melampirkan foto bukti pembayaran atau struk transfer terlebih dahulu.")
+      showAlert({ title: "Bukti Pembayaran Wajib", description: "Wajib mengunggah / melampirkan foto bukti pembayaran atau struk transfer terlebih dahulu.", variant: "warning" })
       return
     }
 
@@ -679,17 +690,17 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
       const data = await res.json()
       if (res.ok) {
-        alert(data.message || `Permintaan pelunasan (${ids.length} nota) berhasil diajukan ke Admin lain.`)
+        showAlert({ title: "Pelunasan Diajukan", description: data.message || `Permintaan pelunasan (${ids.length} nota) berhasil diajukan ke Admin lain.`, variant: "success" })
         setShowSettleModal(false)
         setSelectedReceiptIds([])
         setPaymentProofImage(null)
         await fetchPendingApprovals()
         await fetchNotifications()
       } else {
-        alert(data.error || "Gagal mengajukan pelunasan nota.")
+        showAlert({ title: "Gagal Mengajukan Pelunasan", description: data.error || "Gagal mengajukan pelunasan nota.", variant: "destructive" })
       }
     } catch (e: any) {
-      alert("Terjadi kesalahan saat mengajukan pelunasan.")
+      showAlert({ title: "Kesalahan Sistem", description: "Terjadi kesalahan saat mengajukan pelunasan.", variant: "destructive" })
     } finally {
       setIsSubmittingSettle(false)
     }
@@ -958,7 +969,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
   const handleBulkDelete = async () => {
     if (selectedReceiptIds.length === 0) return
-    if (!confirm(`Ajukan penghapusan massal untuk ${selectedReceiptIds.length} nota yang dipilih?`)) return
+    const confirmed = await showConfirm({
+      title: "Hapus Massal Nota?",
+      description: `Apakah Anda yakin ingin mengajukan penghapusan massal untuk ${selectedReceiptIds.length} nota yang dipilih? Tindakan ini tidak dapat dibatalkan.`,
+      confirmText: "Hapus Nota",
+      cancelText: "Batal",
+      variant: "destructive",
+    })
+    if (!confirmed) return
 
     setIsBulkDeleting(true)
     try {
@@ -971,17 +989,18 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       const data = await res.json()
       if (res.ok) {
         if (data.pendingApproval) {
-          alert(data.message || `Permintaan hapus massal (${selectedReceiptIds.length} nota) telah diajukan. Menunggu verifikasi dari admin lain.`)
+          showAlert({ title: "Pengajuan Terkirim", description: data.message || `Permintaan hapus massal (${selectedReceiptIds.length} nota) telah diajukan. Menunggu verifikasi dari admin lain.`, variant: "success" })
           await fetchPendingApprovals()
         } else {
           setAllReceipts((prev) => prev.filter((r) => !selectedReceiptIds.includes(r.id)))
+          toast.success(`${selectedReceiptIds.length} nota berhasil dihapus!`)
         }
         setSelectedReceiptIds([])
       } else {
-        alert(data.error || "Gagal menghapus nota terpilih")
+        showAlert({ title: "Gagal Menghapus", description: data.error || "Gagal menghapus nota terpilih", variant: "destructive" })
       }
     } catch (e) {
-      alert("Gagal menghapus beberapa nota terpilih")
+      showAlert({ title: "Kesalahan Sistem", description: "Gagal menghapus beberapa nota terpilih", variant: "destructive" })
     } finally {
       setIsBulkDeleting(false)
     }
@@ -989,7 +1008,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
   const handleBulkSettle = async () => {
     if (selectedReceiptIds.length === 0) return
-    if (!confirm(`Ajukan pelunasan massal untuk ${selectedReceiptIds.length} nota yang dipilih?`)) return
+    const confirmed = await showConfirm({
+      title: "Pelunasan Massal Nota?",
+      description: `Ajukan pelunasan massal untuk ${selectedReceiptIds.length} nota yang dipilih?`,
+      confirmText: "Ajukan Pelunasan",
+      cancelText: "Batal",
+      variant: "default",
+    })
+    if (!confirmed) return
 
     setIsBulkSettling(true)
     try {
@@ -1002,7 +1028,7 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       const data = await res.json()
       if (res.ok) {
         if (data.pendingApproval) {
-          alert(data.message || `Permintaan pelunasan massal (${selectedReceiptIds.length} nota) telah diajukan. Menunggu verifikasi dari admin lain.`)
+          showAlert({ title: "Pengajuan Terkirim", description: data.message || `Permintaan pelunasan massal (${selectedReceiptIds.length} nota) telah diajukan. Menunggu verifikasi dari admin lain.`, variant: "success" })
           await fetchPendingApprovals()
         } else {
           setAllReceipts((prev) =>
@@ -1010,13 +1036,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
               selectedReceiptIds.includes(r.id) ? { ...r, paymentStatus: "Sudah Dilunasi" } : r
             )
           )
+          toast.success(`${selectedReceiptIds.length} nota berhasil dilunasi!`)
         }
         setSelectedReceiptIds([])
       } else {
-        alert(data.error || "Gagal mengajukan pelunasan nota terpilih")
+        showAlert({ title: "Gagal Melunasi", description: data.error || "Gagal mengajukan pelunasan nota terpilih", variant: "destructive" })
       }
     } catch (e) {
-      alert("Gagal mengajukan pelunasan nota terpilih")
+      showAlert({ title: "Kesalahan Sistem", description: "Gagal mengajukan pelunasan nota terpilih", variant: "destructive" })
     } finally {
       setIsBulkSettling(false)
     }
@@ -1039,11 +1066,12 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
       if (res.ok) {
         setNewCatNameInput("")
+        toast.success("Kategori berhasil ditambahkan!")
         await fetchCategories()
         await fetchAllReceipts(true)
       }
     } catch (e) {
-      alert("Gagal membuat kategori baru")
+      showAlert({ title: "Gagal Membuat Kategori", description: "Gagal membuat kategori baru ke database", variant: "destructive" })
     }
   }
 
@@ -1059,27 +1087,37 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       if (res.ok) {
         setEditingCatId(null)
         setEditingCatName("")
+        toast.success("Kategori berhasil diperbarui!")
         await fetchCategories()
         await fetchAllReceipts(true)
       }
     } catch (e) {
-      alert("Gagal memperbarui kategori")
+      showAlert({ title: "Gagal Memperbarui Kategori", description: "Gagal memperbarui data kategori", variant: "destructive" })
     }
   }
 
   const handleDeleteCategory = async (catId: string, catName: string) => {
-    if (!confirm(`Yakin ingin menghapus kategori "${catName}"?`)) return
+    const confirmed = await showConfirm({
+      title: "Hapus Kategori?",
+      description: `Apakah Anda yakin ingin menghapus kategori "${catName}"?`,
+      confirmText: "Hapus Kategori",
+      cancelText: "Batal",
+      variant: "destructive",
+    })
+    if (!confirmed) return
+
     try {
       const res = await fetch(`/api/categories/${catId}`, {
         method: "DELETE",
       })
 
       if (res.ok) {
+        toast.success(`Kategori "${catName}" berhasil dihapus!`)
         await fetchCategories()
         await fetchAllReceipts(true)
       }
     } catch (e) {
-      alert("Gagal menghapus kategori")
+      showAlert({ title: "Gagal Menghapus Kategori", description: "Gagal menghapus kategori dari database", variant: "destructive" })
     }
   }
 
@@ -1097,8 +1135,9 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       a.click()
       a.remove()
       window.URL.revokeObjectURL(downloadUrl)
+      toast.success("Cadangan database JSON berhasil diunduh!")
     } catch (err) {
-      alert("Gagal membuat cadangan database JSON")
+      showAlert({ title: "Gagal Backup", description: "Gagal membuat cadangan database JSON", variant: "destructive" })
     }
   }
 
@@ -1119,14 +1158,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
 
       const data = await res.json()
       if (res.ok) {
-        alert(data.message || "Berhasil memulihkan cadangan database!")
+        showAlert({ title: "Pemulihan Selesai", description: data.message || "Berhasil memulihkan cadangan database!", variant: "success" })
         await fetchCategories()
         await fetchAllReceipts(false)
       } else {
-        alert(data.error || "Gagal mengimpor cadangan database")
+        showAlert({ title: "Gagal Memulihkan", description: data.error || "Gagal mengimpor cadangan database", variant: "destructive" })
       }
     } catch (err: any) {
-      alert("Format file cadangan tidak valid atau bermasalah")
+      showAlert({ title: "File Tidak Valid", description: "Format file cadangan tidak valid atau bermasalah", variant: "destructive" })
     } finally {
       setIsBackupRestoring(false)
       if (fileInputRef.current) fileInputRef.current.value = ""
@@ -1264,9 +1303,10 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       // Save PDF file
       const dateToday = new Date().toISOString().split("T")[0]
       doc.save(`Laporan_Pembukuan_Nota_Photo_${dateToday}.pdf`)
+      toast.success("Laporan PDF berhasil diunduh!")
     } catch (err: any) {
       console.error("PDF Export Error:", err)
-      alert("Gagal mengunduh file PDF: " + (err?.message || "Terjadi kesalahan"))
+      showAlert({ title: "Gagal Ekspor PDF", description: "Gagal mengunduh file PDF: " + (err?.message || "Terjadi kesalahan"), variant: "destructive" })
     }
   }
 
@@ -1287,20 +1327,21 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       const data = await res.json()
       if (res.ok) {
         if (data.pendingApproval) {
-          alert(data.message || "Permintaan hapus nota telah diajukan. Menunggu verifikasi dari admin lain.")
+          showAlert({ title: "Pengajuan Terkirim", description: data.message || "Permintaan hapus nota telah diajukan. Menunggu verifikasi dari admin lain.", variant: "success" })
           await fetchPendingApprovals()
         } else {
           setAllReceipts((prev) => prev.filter((r) => r.id !== deletingReceipt.id))
+          toast.success("Nota berhasil dihapus!")
         }
         if (selectedReceipt?.id === deletingReceipt.id) {
           setSelectedReceipt(null)
         }
         setDeletingReceipt(null)
       } else {
-        alert(data.error || "Gagal menghapus nota")
+        showAlert({ title: "Gagal Menghapus", description: data.error || "Gagal menghapus nota", variant: "destructive" })
       }
     } catch (err) {
-      alert("Gagal menghubungkan ke server untuk menghapus nota")
+      showAlert({ title: "Kesalahan Jaringan", description: "Gagal menghubungkan ke server untuk menghapus nota", variant: "destructive" })
     } finally {
       setIsDeleting(false)
     }
@@ -1349,10 +1390,11 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       a.click()
       a.remove()
       window.URL.revokeObjectURL(downloadUrl)
+      toast.success("Laporan berhasil diekspor!")
 
       setExportConfirmFormat(null)
     } catch (err: any) {
-      alert(err.message || "Gagal membuat laporan ekspor")
+      showAlert({ title: "Gagal Ekspor", description: err.message || "Gagal membuat laporan ekspor", variant: "destructive" })
     } finally {
       setIsExporting(false)
     }
