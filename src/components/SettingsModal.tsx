@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import { Settings, X, KeyRound, UserCheck, LogOut, Eye, EyeOff, ShieldCheck, CheckCircle2, AlertCircle, Loader2, Bell, Zap, Lock, Key } from "lucide-react"
+import { Settings, X, KeyRound, UserCheck, LogOut, Eye, EyeOff, ShieldCheck, CheckCircle2, AlertCircle, Loader2, Bell, Zap, Lock, Key, Boxes, Store, Warehouse, RefreshCw, Layers } from "lucide-react"
 import {
   getNotificationPermissionStatus,
   getNotificationSettings,
@@ -28,7 +28,7 @@ interface SettingsModalProps {
 export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: SettingsModalProps) {
   const { showAlert } = useAppDialog()
   const isKaryawan = currentAdminUser.trim().toLowerCase() === "karyawan"
-  const [activeTab, setActiveTab] = useState<"password" | "info" | "notification">("notification")
+  const [activeTab, setActiveTab] = useState<"notification" | "pos" | "password" | "info">("notification")
 
   // Notification Permission State
   const [permState, setPermState] = useState<string>("default")
@@ -42,13 +42,53 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
     approvalReqEnabled: true,
   })
 
+  // POS & Stock Sync Settings State
+  const [stockDestination, setStockDestination] = useState<"BAR" | "WAREHOUSE">("BAR")
+  const [isTestingPos, setIsTestingPos] = useState(false)
+  const [posSyncStatus, setPosSyncStatus] = useState<{ success?: boolean; message?: string } | null>(null)
+
   useEffect(() => {
     if (isOpen) {
       setPermState(getNotificationPermissionStatus())
       setNotifySettings(getNotificationSettings())
       isPushSubscribed().then(setIsSubscribed)
+
+      const savedDest = localStorage.getItem("perkara_default_stock_dest")
+      if (savedDest === "WAREHOUSE" || savedDest === "BAR") {
+        setStockDestination(savedDest)
+      }
     }
   }, [isOpen])
+
+  const handleSetStockDestination = (dest: "BAR" | "WAREHOUSE") => {
+    setStockDestination(dest)
+    localStorage.setItem("perkara_default_stock_dest", dest)
+    toast.success(`Tujuan penambahan stok default diatur ke: Stok ${dest === "BAR" ? "Bar / Toko" : "Gudang"}`)
+  }
+
+  const handleTestPosConnection = async () => {
+    setIsTestingPos(true)
+    setPosSyncStatus(null)
+    try {
+      const res = await fetch("/api/pos/test-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destination: stockDestination }),
+      })
+      const data = await res.json()
+      setPosSyncStatus(data)
+      if (data.success) {
+        toast.success("Koneksi ke New PERKARA POS Terhubung & Berhasil!")
+      } else {
+        toast.error("Gagal terhubung ke POS: " + (data.message || "Offline"))
+      }
+    } catch (e: any) {
+      setPosSyncStatus({ success: false, message: e.message || "Gagal menghubungi server" })
+      toast.error("Koneksi gagal: " + (e.message || "POS Offline"))
+    } finally {
+      setIsTestingPos(false)
+    }
+  }
 
   // Countdown timer effect for push test
   useEffect(() => {
@@ -102,35 +142,26 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
       return
     }
 
-    setIsSaving(true)
-
     try {
+      setIsSaving(true)
       const res = await fetch("/api/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: currentAdminUser,
-          oldPassword,
-          newPassword,
-        }),
+        body: JSON.stringify({ oldPassword, newPassword }),
       })
 
       const data = await res.json()
 
       if (!res.ok) {
-        throw new Error(data.error || "Gagal memperbarui password.")
+        throw new Error(data.error || "Gagal mengubah password")
       }
 
-      if (data.token) {
-        localStorage.setItem("nota_admin_token", data.token)
-      }
-
-      setStatusMessage({ type: "success", text: `Password ID "${currentAdminUser}" berhasil diperbarui!` })
+      setStatusMessage({ type: "success", text: "Password berhasil diperbarui! Silakan gunakan password baru pada login berikutnya." })
       setOldPassword("")
       setNewPassword("")
       setConfirmPassword("")
     } catch (err: any) {
-      setStatusMessage({ type: "error", text: err.message || "Gagal memperbarui password." })
+      setStatusMessage({ type: "error", text: err.message || "Terjadi kesalahan saat mengubah password" })
     } finally {
       setIsSaving(false)
     }
@@ -138,15 +169,15 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-5 animate-in zoom-in-95 duration-150">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3.5">
+      <div className="bg-white w-full max-w-lg rounded-3xl p-5 shadow-2xl border border-slate-100 space-y-4 max-h-[92vh] overflow-y-auto">
+        {/* Header Modal */}
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0">
+            <div className="p-2 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-200/60">
               <Settings className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+              <h3 className="text-base font-extrabold text-slate-900 leading-none mb-1">
                 Pengaturan
               </h3>
               <p className="text-xs text-slate-500 font-semibold flex items-center gap-1">
@@ -158,29 +189,39 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Selection */}
-        <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs font-bold">
+        <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs font-bold gap-0.5">
           <button
             type="button"
             onClick={() => setActiveTab("notification")}
-            className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer ${
               activeTab === "notification" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
             }`}
           >
-            <Bell className="w-3.5 h-3.5 text-amber-500" /> Notifikasi HP & OS
+            <Bell className="w-3.5 h-3.5 text-amber-500" /> Notif OS
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("pos")}
+            className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer ${
+              activeTab === "pos" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Boxes className="w-3.5 h-3.5 text-purple-600" /> Stok POS
           </button>
 
           {!isKaryawan && (
             <button
               type="button"
               onClick={() => setActiveTab("password")}
-              className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer ${
                 activeTab === "password" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
               }`}
             >
@@ -191,11 +232,11 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
           <button
             type="button"
             onClick={() => setActiveTab("info")}
-            className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer ${
               activeTab === "info" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
             }`}
           >
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Info
+            <ShieldCheck className="w-3.5 h-3.5 text-teal-600" /> Info
           </button>
         </div>
 
@@ -296,78 +337,144 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
               </div>
             </div>
 
-            {/* Quick Operating System Guide */}
-            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2 text-xs">
-              <span className="font-extrabold text-slate-800 block text-[11.5px] uppercase tracking-wider">
-                Panduan Agar Notifikasi Selalu Tembus di HP:
-              </span>
-              <ul className="space-y-1.5 text-slate-600 text-[11px] list-disc list-inside">
-                <li>
-                  <strong>Android:</strong> Pastikan Chrome/browser tidak masuk ke mode <em>Hemat Daya Ekstrem (Battery Optimization)</em> agar notifikasi tidak tertunda oleh OS Android.
-                </li>
-                <li>
-                  <strong>iPhone (iOS 16.4+):</strong> Buka di Safari, ketuk tombol <em>Bagikan (Share)</em> &gt; <em>Tambahkan ke Layar Utama (Add to Home Screen)</em>, lalu buka dari ikon Layar Utama dan izinkan notifikasi.
-                </li>
-              </ul>
-            </div>
-
-            {/* Toggle Preferences */}
-            <div className="p-3.5 bg-white rounded-2xl border border-slate-200 space-y-2.5 text-xs">
-              <span className="font-extrabold text-slate-800 block text-[11.5px] uppercase tracking-wider">
-                Pengaturan Filter Notifikasi:
+            {/* In-App Toggle Settings */}
+            <div className="space-y-2 pt-1">
+              <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                Preferensi Notifikasi
               </span>
 
-              <label className="flex items-center justify-between text-slate-700 font-semibold cursor-pointer hover:bg-slate-50 p-1.5 rounded-xl transition-colors">
-                <span>Banner Pop-up System OS</span>
-                <input
-                  type="checkbox"
-                  checked={notifySettings.osPushEnabled}
-                  onChange={(e) => {
-                    const updated = { ...notifySettings, osPushEnabled: e.target.checked }
-                    setNotifySettings(updated)
-                    saveNotificationSettings(updated)
-                  }}
-                  className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
-                />
-              </label>
-
-              <label className="flex items-center justify-between text-slate-700 font-semibold cursor-pointer hover:bg-slate-50 p-1.5 rounded-xl transition-colors">
-                <span>Notifikasi Struk/Nota Masuk Baru</span>
+              <label className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
+                <span className="text-xs font-bold text-slate-800">Pemberitahuan Nota Baru Masuk</span>
                 <input
                   type="checkbox"
                   checked={notifySettings.newReceiptEnabled}
                   onChange={(e) => {
-                    const updated = { ...notifySettings, newReceiptEnabled: e.target.checked }
-                    setNotifySettings(updated)
-                    saveNotificationSettings(updated)
+                    const next = { ...notifySettings, newReceiptEnabled: e.target.checked }
+                    setNotifySettings(next)
+                    saveNotificationSettings(next)
                   }}
-                  className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+                  className="w-4 h-4 text-emerald-600 rounded-md focus:ring-emerald-500 cursor-pointer"
                 />
               </label>
 
-              <label className="flex items-center justify-between text-slate-700 font-semibold cursor-pointer hover:bg-slate-50 p-1.5 rounded-xl transition-colors">
-                <span>Notifikasi Approval & Edit Data</span>
+              <label className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
+                <span className="text-xs font-bold text-slate-800">Pemberitahuan Permintaan Approval</span>
                 <input
                   type="checkbox"
                   checked={notifySettings.approvalReqEnabled}
                   onChange={(e) => {
-                    const updated = { ...notifySettings, approvalReqEnabled: e.target.checked }
-                    setNotifySettings(updated)
-                    saveNotificationSettings(updated)
+                    const next = { ...notifySettings, approvalReqEnabled: e.target.checked }
+                    setNotifySettings(next)
+                    saveNotificationSettings(next)
                   }}
-                  className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+                  className="w-4 h-4 text-emerald-600 rounded-md focus:ring-emerald-500 cursor-pointer"
                 />
               </label>
             </div>
           </div>
         )}
 
-        {/* Tab Content 1: Ganti Password (Admin Only) */}
+        {/* Tab Content: Integrasi POS & Stok Otomatis */}
+        {activeTab === "pos" && (
+          <div className="space-y-4 animate-in fade-in duration-150">
+            {/* Stock Destination Config Card */}
+            <div className="p-4 bg-gradient-to-br from-purple-950 via-slate-900 to-slate-900 text-white rounded-3xl border border-purple-800/60 shadow-md space-y-3.5">
+              <div className="flex items-center justify-between">
+                <span className="font-black text-sm flex items-center gap-2 text-white">
+                  <Boxes className="w-4 h-4 text-purple-400" /> Lokasi Penambahan Stok
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                  {stockDestination === "BAR" ? "Stok Bar (Default)" : "Stok Gudang"}
+                </span>
+              </div>
+
+              <p className="text-[11.5px] text-slate-300 leading-relaxed">
+                Tentukan ke mana stok bahan baku (kopi, susu, sirup, dll) akan otomatis bertambah di <strong>New PERKARA POS</strong> begitu nota disetujui oleh Admin 2.
+              </p>
+
+              {/* Destination Switcher */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleSetStockDestination("BAR")}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                    stockDestination === "BAR"
+                      ? "bg-purple-600 text-white border-purple-400 shadow-md ring-2 ring-purple-400/40"
+                      : "bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-800"
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <Store className="w-4 h-4" />
+                    {stockDestination === "BAR" && <span className="text-[9px] font-black bg-white text-purple-900 px-1.5 py-0.2 rounded-full">AKTIF</span>}
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-black">Stok Bar / Toko</strong>
+                    <span className="text-[10px] opacity-80 block">floorQuantity (Bahan siap pakai)</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSetStockDestination("WAREHOUSE")}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                    stockDestination === "WAREHOUSE"
+                      ? "bg-purple-600 text-white border-purple-400 shadow-md ring-2 ring-purple-400/40"
+                      : "bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-800"
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <Warehouse className="w-4 h-4" />
+                    {stockDestination === "WAREHOUSE" && <span className="text-[9px] font-black bg-white text-purple-900 px-1.5 py-0.2 rounded-full">AKTIF</span>}
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-black">Stok Gudang</strong>
+                    <span className="text-[10px] opacity-80 block">warehouseQuantity (Stok cadangan)</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Test Connection Button */}
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-purple-600" /> Uji Koneksi Webhook POS
+                </span>
+                <button
+                  type="button"
+                  disabled={isTestingPos}
+                  onClick={handleTestPosConnection}
+                  className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-extrabold text-xs transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isTestingPos ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                  Tes Sinkronisasi
+                </button>
+              </div>
+
+              {posSyncStatus && (
+                <div className={`p-2.5 rounded-xl border text-[11px] font-medium leading-relaxed ${
+                  posSyncStatus.success
+                    ? "bg-emerald-50 text-emerald-900 border-emerald-200"
+                    : "bg-amber-50 text-amber-900 border-amber-200"
+                }`}>
+                  {posSyncStatus.success ? "✓ " : "⚠️ "}
+                  {posSyncStatus.message}
+                </div>
+              )}
+
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Setiap nota baru yang disetujui Admin 2 akan otomatis menghitung rasio konversi satuan, meng-update moving average HPP, dan mencatat mutasi stok di POS.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Tab Content: Password */}
         {activeTab === "password" && !isKaryawan && (
-          <form onSubmit={handleChangePassword} className="space-y-4 animate-in fade-in duration-150">
+          <form onSubmit={handleChangePassword} className="space-y-3.5 animate-in fade-in duration-150">
             {statusMessage && (
               <div
-                className={`p-3 rounded-2xl text-xs font-semibold flex items-start gap-2 animate-in fade-in duration-200 ${
+                className={`p-3 rounded-2xl text-xs font-semibold flex items-start gap-2 ${
                   statusMessage.type === "success"
                     ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
                     : "bg-red-50 text-red-800 border border-red-200"
@@ -382,72 +489,69 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Password Saat Ini ({currentAdminUser})</label>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700">Password Lama</label>
               <div className="relative">
                 <input
                   type={showOldPass ? "text" : "password"}
-                  required
                   value={oldPassword}
                   onChange={(e) => setOldPassword(e.target.value)}
-                  placeholder="Masukkan password saat ini..."
-                  className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 focus:border-emerald-500 text-xs font-semibold text-slate-900 bg-white"
+                  placeholder="Masukkan password lama"
+                  className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all text-slate-900"
                 />
                 <button
                   type="button"
                   onClick={() => setShowOldPass(!showOldPass)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
                   {showOldPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               <label className="text-xs font-bold text-slate-700">Password Baru</label>
               <div className="relative">
                 <input
                   type={showNewPass ? "text" : "password"}
-                  required
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Masukkan password baru..."
-                  className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 focus:border-emerald-500 text-xs font-semibold text-slate-900 bg-white"
+                  placeholder="Masukkan password baru (min 4 karakter)"
+                  className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all text-slate-900"
                 />
                 <button
                   type="button"
                   onClick={() => setShowNewPass(!showNewPass)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
                   {showNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Ulangi Password Baru</label>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700">Konfirmasi Password Baru</label>
               <input
                 type="password"
-                required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Konfirmasi password baru..."
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 text-xs font-semibold text-slate-900 bg-white"
+                placeholder="Ulangi password baru"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all text-slate-900"
               />
             </div>
 
             <button
               type="submit"
               disabled={isSaving}
-              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold text-xs transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold text-xs transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
-              Simpan Password Baru
+              {isSaving ? "Menyimpan..." : "Simpan Password Baru"}
             </button>
           </form>
         )}
 
-        {/* Tab Content 2: Info Akun */}
+        {/* Tab Content: Info Akun */}
         {activeTab === "info" && (
           <div className="space-y-4 animate-in fade-in duration-150">
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2 text-xs">
@@ -504,7 +608,7 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors"
+            className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
           >
             Tutup
           </button>

@@ -6,6 +6,7 @@ import { invalidateReceiptsListCache } from "@/app/api/receipts/route"
 import { invalidateApprovalsCache } from "@/app/api/approvals/route"
 import { invalidateNotificationsCache } from "@/app/api/notifications/route"
 import { sendWebPushNotification } from "@/lib/serverPush"
+import { syncReceiptToPos } from "@/lib/posSync"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -168,6 +169,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       } catch (dictErr) {
         console.warn("Background auto-learning notice:", dictErr)
       }
+
+      // Background sync to New PERKARA POS
+      syncReceiptToPos({
+        receiptId: createdReceiptId || cleanId,
+        merchantName: merchantName || "Nota / Toko",
+        date: date || new Date().toISOString().split("T")[0],
+        totalAmount: Number(totalAmount) || 0,
+        subtotal: Number(subtotal) || 0,
+        taxAmount: Number(taxAmount) || 0,
+        discountAmount: Number(discountAmount) || 0,
+        paymentMethod: paymentMethod || "Cash",
+        paymentStatus: paymentStatus || "Lunas",
+        note: note || null,
+        imageUrl: compressedImageUrl || imageUrl || null,
+        staffName: staffName || null,
+        approvedBy: approvingAdmin,
+        items: (items || []).map((it: any) => ({
+          name: it.name || "Item",
+          category: it.category || "Lain-lain",
+          subCategory: it.subCategory || "Umum",
+          price: Number(it.price) || 0,
+          quantity: Number(it.quantity) || 1,
+          sku: it.sku,
+        })),
+      }).catch((posErr) => console.warn("[POS Sync Trigger Error]:", posErr))
     } else if (actionType === "DELETE" && (pendingApproval.receiptId || payload.id)) {
       const delId = pendingApproval.receiptId || payload.id
       const { error: delErr } = await supabase
