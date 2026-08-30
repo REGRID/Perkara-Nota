@@ -15,6 +15,8 @@ import {
   testBackgroundPushNotification,
   NotificationSettings,
 } from "@/lib/pwaNotification"
+import { useAppDialog } from "@/components/ui/app-dialog"
+import { toast } from "sonner"
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -24,6 +26,7 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: SettingsModalProps) {
+  const { showAlert } = useAppDialog()
   const isKaryawan = currentAdminUser.trim().toLowerCase() === "karyawan"
   const [activeTab, setActiveTab] = useState<"password" | "info" | "notification">("notification")
 
@@ -241,9 +244,9 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
                       const subStatus = await isPushSubscribed()
                       setIsSubscribed(subStatus)
                       if (res.success) {
-                        alert("Berhasil! Notifikasi latar belakang telah aktif untuk perangkat ini.")
+                        toast.success("Notifikasi latar belakang telah aktif untuk perangkat ini!")
                       } else {
-                        alert(`Perhatian: ${res.error || "Gagal mengaktifkan notifikasi latar belakang."}`)
+                        showAlert({ title: "Perhatian Notifikasi", description: res.error || "Gagal mengaktifkan notifikasi latar belakang.", variant: "warning" })
                       }
                     }}
                     className="w-full py-2.5 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-slate-950 font-black text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
@@ -276,7 +279,7 @@ export function SettingsModal({ isOpen, onClose, currentAdminUser, onLogout }: S
                       onClick={async () => {
                         await unsubscribePushNotifications()
                         setIsSubscribed(false)
-                        alert("Langganan push untuk perangkat ini telah dinonaktifkan.")
+                        toast.info("Langganan push untuk perangkat ini telah dinonaktifkan.")
                       }}
                       className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-red-400 font-bold text-xs transition-all cursor-pointer border border-slate-700"
                     >

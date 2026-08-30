@@ -4,6 +4,7 @@ import "./globals.css"
 import { Toaster } from "sonner"
 
 import { PwaInstallPrompt } from "@/components/pwa-install-prompt"
+import { AppDialogProvider } from "@/components/ui/app-dialog"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 
@@ -43,9 +44,11 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
       <body className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-white">
-        {children}
-        <PwaInstallPrompt />
-        <Toaster position="top-right" richColors />
+        <AppDialogProvider>
+          {children}
+          <PwaInstallPrompt />
+          <Toaster position="top-right" richColors />
+        </AppDialogProvider>
       </body>
     </html>
   )

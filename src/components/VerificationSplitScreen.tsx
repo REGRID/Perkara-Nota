@@ -40,6 +40,8 @@ import {
 import { ParsedItem, ParsedReceiptResult } from "@/app/api/parse-receipt/route"
 import { ImageInteractiveLightbox } from "@/components/ImageInteractiveLightbox"
 import { getAuthHeaders } from "@/lib/authClient"
+import { useAppDialog } from "@/components/ui/app-dialog"
+import { toast } from "sonner"
 
 interface VerificationSplitScreenProps {
   imagePreviewUrl: string
@@ -91,6 +93,7 @@ export function VerificationSplitScreen({
   onCancel,
   onDraftUpdate,
 }: VerificationSplitScreenProps) {
+  const { showAlert, showConfirm } = useAppDialog()
   const [mobileView, setMobileView] = useState<"form" | "image">("form")
 
   // Interactive Lightbox State
@@ -213,7 +216,7 @@ export function VerificationSplitScreen({
   const handleCreateCustomCategory = async () => {
     const cleanName = newCategoryName.trim()
     if (!cleanName) {
-      alert("Nama kategori tidak boleh kosong.")
+      showAlert({ title: "Kategori Kosong", description: "Nama kategori tidak boleh kosong.", variant: "warning" })
       return
     }
 
@@ -242,6 +245,7 @@ export function VerificationSplitScreen({
         const resData = await res.json()
         setNewCategoryName("")
         setShowAddCategoryModal(false)
+        toast.success("Kategori berhasil ditambahkan!")
 
         let updatedHierarchy = categoryHierarchy
         if (resData.hierarchy && Array.isArray(resData.hierarchy)) {
@@ -282,11 +286,11 @@ export function VerificationSplitScreen({
         setTargetItemIndexForCategory(null)
       } else {
         const errData = await res.json()
-        alert(errData.error || "Gagal menambah kategori baru")
+        showAlert({ title: "Gagal Menambah Kategori", description: errData.error || "Gagal menambah kategori baru", variant: "destructive" })
       }
     } catch (e) {
       console.error("Create custom category error:", e)
-      alert("Gagal menambah kategori baru")
+      showAlert({ title: "Kesalahan Sistem", description: "Gagal menambah kategori baru ke database", variant: "destructive" })
     }
   }
 
@@ -421,7 +425,7 @@ export function VerificationSplitScreen({
 
   const handleRemoveItem = (index: number) => {
     if (items.length <= 1) {
-      alert("Nota harus memiliki minimal 1 item produk.")
+      showAlert({ title: "Item Wajib Ada", description: "Nota harus memiliki minimal 1 item produk.", variant: "warning" })
       return
     }
     setItems(items.filter((_, i) => i !== index))
@@ -492,7 +496,13 @@ export function VerificationSplitScreen({
       }
 
       if (data.pendingApproval) {
-        alert(data.message || "Permintaan berhasil diajukan! Menunggu persetujuan (approval) dari admin lain.")
+        await showAlert({
+          title: "Pengajuan Berhasil",
+          description: data.message || "Permintaan berhasil diajukan! Menunggu persetujuan (approval) dari admin lain.",
+          variant: "success",
+        })
+      } else {
+        toast.success("Nota berhasil disimpan!")
       }
 
       onSaveSuccess()

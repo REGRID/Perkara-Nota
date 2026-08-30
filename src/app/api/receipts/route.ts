@@ -47,14 +47,14 @@ export async function GET(req: NextRequest) {
           r.id, 
           r."merchantName", 
           r.date, 
-          r.subtotal, 
-          r."discountAmount", 
-          r."taxAmount", 
-          r."totalAmount", 
-          r."paymentMethod", 
-          r."paymentStatus", 
-          r.note, 
-          r."staffName", 
+          r.subtotal,
+          r."discountAmount",
+          r."taxAmount",
+          r."totalAmount",
+          r."paymentMethod",
+          r."paymentStatus",
+          r.note,
+          r."staffName",
           r."createdAt", 
           r."updatedAt",
           COALESCE(
@@ -214,9 +214,12 @@ export async function POST(req: NextRequest) {
     }
 
     invalidateReceiptsListCache()
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
 
     const userRole = getAdminRoleFromRequest(req)
     const reqStaffName = staffName || getStaffNameFromRequest(req)
+    const adminUser = getAdminUserFromRequest(req)
 
     const isPersonal =
       paymentMethod === "Dana Pribadi Owner" || paymentMethod === "Talangan Karyawan"
@@ -239,7 +242,14 @@ export async function POST(req: NextRequest) {
     // 1. Compress Image before storing
     const compressedImageUrl = imageUrl ? await compressBase64Image(imageUrl) : null
 
-    const payloadToSave = {
+    const resolvedAdmin = adminUser || (userRole === "KARYAWAN" && reqStaffName ? reqStaffName : "admin")
+    const uploaderName = reqStaffName
+      ? `${reqStaffName} (Karyawan)`
+      : userRole === "KARYAWAN"
+      ? "Karyawan"
+      : resolvedAdmin
+
+    const payloadObj = {
       merchantName: merchantName || "Nota / Toko",
       date: date || new Date().toISOString().split("T")[0],
       imageUrl: compressedImageUrl,
@@ -260,16 +270,15 @@ export async function POST(req: NextRequest) {
       })),
     }
 
-    const adminUser = getAdminUserFromRequest(req) || (userRole === "KARYAWAN" && reqStaffName ? reqStaffName : "admin")
-
     // 2. Insert into pending_approvals for Dual-Admin Verification
-    const { data: approval, error: approvalError } = await supabase
+    const { data: newApproval, error: approvalError } = await supabase
       .from("pending_approvals")
       .insert({
+        receiptId: null,
         actionType: "CREATE",
-        requestedBy: adminUser,
+        requestedBy: uploaderName,
         status: "PENDING",
-        payload: JSON.stringify(payloadToSave),
+        payload: JSON.stringify(payloadObj),
       })
       .select("id, receiptId, actionType, requestedBy, status, createdAt")
       .single()
@@ -284,13 +293,6 @@ export async function POST(req: NextRequest) {
 
     // 3. Insert Notification & Send Real Web Push to Other Admins
     try {
-      const isKaryawanUpload = Boolean(staffName) || userRole === "KARYAWAN"
-      const uploaderName = staffName
-        ? `${staffName} (Karyawan)`
-        : isKaryawanUpload
-        ? "Karyawan"
-        : adminUser
-
       const notifTitle = "Pengajuan Nota Baru Menunggu Approval"
       const notifMessage = `${uploaderName} telah mengajukan nota baru dari "${merchantName || 'Nota / Toko'}" sebesar Rp ${(Number(totalAmount) || 0).toLocaleString("id-ID")}. Menunggu persetujuan Admin lain.`
 
@@ -300,7 +302,7 @@ export async function POST(req: NextRequest) {
         type: "REQUEST",
         title: notifTitle,
         message: notifMessage,
-        approvalId: approval.id,
+        approvalId: newApproval.id,
         isRead: false,
       })
 
@@ -310,7 +312,7 @@ export async function POST(req: NextRequest) {
         message: notifMessage,
         url: "/",
         recipientRole: "ADMIN",
-        excludeUsername: adminUser,
+        excludeUsername: uploaderName,
       }).catch((pErr: any) => console.warn("[WebPush Error on New Receipt Request]:", pErr))
     } catch (nErr) {
       console.warn("New receipt request notification notice:", nErr)
@@ -318,8 +320,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       pendingApproval: true,
-      message: `Nota baru dari "${merchantName || 'Nota / Toko'}" berhasil diajukan oleh ${adminUser}. Menunggu persetujuan (approval) dari admin lain.`,
-      approval,
+      message: `Nota baru dari "${merchantName || 'Nota / Toko'}" berhasil diajukan oleh ${uploaderName}. Menunggu persetujuan (approval) dari admin lain.`,
+      approval: newApproval,
+      ...payloadObj,
     }, { status: 201 })
   } catch (error: any) {
     console.error("POST Receipt Error:", error)

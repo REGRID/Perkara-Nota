@@ -36,7 +36,7 @@ export function getAdminRoleFromRequest(req: NextRequest): string {
 
   const user = getAdminUserFromRequest(req)
   if (user === "karyawan") return "KARYAWAN"
-  if (user === "rama" || user === "refo") return "ADMIN"
+  if (user === "rama" || user === "refo" || user === "admin1" || user === "admin2" || user === "admin") return "ADMIN"
 
   return user ? "ADMIN" : "KARYAWAN"
 }

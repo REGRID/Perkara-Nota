@@ -40,11 +40,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Permintaan verifikasi tidak ditemukan" }, { status: 404 })
     }
 
-    if (pendingApproval.status !== "PENDING") {
-      return NextResponse.json({ error: "Permintaan verifikasi ini telah diproses sebelumnya" }, { status: 400 })
+    const cleanRejectingAdmin = rejectingAdmin.trim().toLowerCase()
+    const isRamaAdmin1 = cleanRejectingAdmin === "rama" || cleanRejectingAdmin === "admin1"
+
+    // Exclusive Rejection for New Receipts (CREATE): Only Admin 1 (Rama) is authorized to reject new receipts
+    if (pendingApproval.actionType === "CREATE" && !isRamaAdmin1) {
+      return NextResponse.json({
+        error: "Akses Ditolak: Hak penolakan/persetujuan nota baru hanya dimiliki khusus oleh Admin 1 (Rama).",
+      }, { status: 403 })
     }
 
-    if (pendingApproval.requestedBy.trim().toLowerCase() === rejectingAdmin.trim().toLowerCase()) {
+    // Dual-Control Enforcement: Prevent Self-Rejection only for destructive items
+    const isDestructive = pendingApproval.actionType === "DELETE" || pendingApproval.actionType === "BULK_DELETE" || pendingApproval.actionType === "EDIT"
+    if (isDestructive && pendingApproval.requestedBy.trim().toLowerCase() === cleanRejectingAdmin) {
       return NextResponse.json({
         error: `Akses Ditolak: Permintaan diajukan oleh Anda (${rejectingAdmin}). Verifikasi/penolakan harus dilakukan oleh Admin lain.`,
       }, { status: 403 })
@@ -71,10 +79,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     invalidateApprovalsCache()
     invalidateNotificationsCache()
 
-    // Insert notification to all admins & Send Web Push
+    // Insert notification & Send Web Push
     try {
-      const notifTitle = "Permintaan Ditolak"
-      const notifMsg = `Admin ${rejectingAdmin} menolak permintaan ${pendingApproval.actionType} Anda. Alasan: ${reason || "Tidak disetujui"}.`
+      let payloadObj: any = {}
+      try {
+        payloadObj = JSON.parse(pendingApproval.payload || "{}")
+      } catch (e) {}
+
+      const notifTitle = pendingApproval.actionType === "CREATE" ? "Pengajuan Nota Baru Ditolak" : "Permintaan Ditolak"
+      const notifMsg = pendingApproval.actionType === "CREATE"
+        ? `Admin ${rejectingAdmin} menolak pengajuan nota baru dari "${payloadObj.merchantName || 'Nota'}". Alasan: ${reason || "Tidak disetujui"}.`
+        : `Admin ${rejectingAdmin} menolak permintaan ${pendingApproval.actionType} Anda. Alasan: ${reason || "Tidak disetujui"}.`
 
       await supabase.from("notifications").insert({
         recipient: "all",

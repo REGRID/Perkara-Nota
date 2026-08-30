@@ -45,10 +45,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Permintaan verifikasi ini telah diproses sebelumnya" }, { status: 400 })
     }
 
+    const actionType = pendingApproval.actionType
+    const cleanApprovingAdmin = approvingAdmin.trim().toLowerCase()
+    const cleanRequestedBy = (pendingApproval.requestedBy || "").trim().toLowerCase()
+
     // Dual-Control Enforcement: Prevent Self-Approval (Case-Insensitive)
-    if (pendingApproval.requestedBy.trim().toLowerCase() === approvingAdmin.trim().toLowerCase()) {
+    // If Admin 1 (Rama) creates nota -> Admin 2 (Refo) approves.
+    // If Admin 2 (Refo) creates nota -> Admin 1 (Rama) approves.
+    if (cleanRequestedBy === cleanApprovingAdmin) {
       return NextResponse.json({
-        error: `Akses Ditolak: Permintaan diajukan oleh Anda (${approvingAdmin}). Verifikasi harus dilakukan oleh Admin lain.`,
+        error: `Akses Ditolak: Permintaan diajukan oleh Anda (${approvingAdmin}). Verifikasi & persetujuan harus dilakukan oleh Admin lain.`,
       }, { status: 403 })
     }
 
@@ -59,8 +65,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       payload = {}
     }
 
-    const actionType = pendingApproval.actionType
-
     // Invalidate list cache so fresh updated data is returned immediately
     invalidateReceiptsListCache()
 
@@ -68,7 +72,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     // Execute requested changes in database
     if (actionType === "CREATE") {
-      const { merchantName, date, imageUrl, subtotal, discountAmount, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, items } = payload
+      const {
+        merchantName,
+        date,
+        imageUrl,
+        subtotal,
+        discountAmount,
+        taxAmount,
+        totalAmount,
+        paymentMethod,
+        paymentStatus,
+        note,
+        staffName,
+        items,
+      } = payload
+
       const compressedImageUrl = imageUrl ? await compressBase64Image(imageUrl) : null
 
       const { data: newReceipt, error: receiptError } = await supabase
@@ -91,26 +109,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .single()
 
       if (receiptError) {
-        console.error("Insert Receipt on Approval Error:", receiptError)
+        console.error("Insert Approved Receipt Error:", receiptError)
         throw new Error(receiptError.message)
       }
 
       createdReceiptId = newReceipt.id
 
+      // Insert items
       if (items && Array.isArray(items) && items.length > 0) {
-        const itemsToCreate = items.map((it: any) => ({
-          receiptId: createdReceiptId,
-          name: it.name || "Item",
-          category: it.category || "Lain-lain",
-          subCategory: it.subCategory || "Umum",
-          price: Number(it.price) || 0,
-          quantity: Number(it.quantity) || 1,
+        const itemsToInsert = items.map((item: any) => ({
+          receiptId: newReceipt.id,
+          name: item.name || "Item",
+          category: item.category || "Lain-lain",
+          subCategory: item.subCategory || "Umum",
+          price: Number(item.price) || 0,
+          quantity: Number(item.quantity) || 1,
         }))
 
-        await supabase.from("receipt_items").insert(itemsToCreate)
+        const { error: itemsError } = await supabase
+          .from("receipt_items")
+          .insert(itemsToInsert)
+
+        if (itemsError) {
+          console.error("Insert Approved Items Error:", itemsError)
+        }
       }
 
-      // Background auto-learning dictionaries
+      // Background auto-learning into dictionaries
       try {
         if (merchantName) {
           await supabase.from("merchant_dictionaries").upsert(
@@ -122,6 +147,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             { onConflict: "rawPattern" }
           )
         }
+
         if (items && Array.isArray(items)) {
           for (const itm of items) {
             if (itm.name) {
@@ -140,14 +166,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           }
         }
       } catch (dictErr) {
-        console.warn("Auto-learning dictionary notice:", dictErr)
+        console.warn("Background auto-learning notice:", dictErr)
       }
     } else if (actionType === "DELETE" && (pendingApproval.receiptId || payload.id)) {
-      const targetId = pendingApproval.receiptId || payload.id
+      const delId = pendingApproval.receiptId || payload.id
       const { error: delErr } = await supabase
         .from("receipts")
         .delete()
-        .eq("id", targetId)
+        .eq("id", delId)
 
       if (delErr) console.warn("Delete receipt execution notice:", delErr)
     } else if (actionType === "BULK_DELETE" && payload.ids && Array.isArray(payload.ids)) {
@@ -179,7 +205,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         if (setErr) console.warn("Settle execution notice:", setErr)
       }
     } else if (actionType === "EDIT" && (pendingApproval.receiptId || payload.id)) {
-      const targetReceiptId = pendingApproval.receiptId || payload.id
+      const editReceiptId = pendingApproval.receiptId || payload.id
       const { merchantName, date, imageUrl, subtotal, discountAmount, taxAmount, totalAmount, paymentMethod, paymentStatus, note, items } = payload
       const compressedImageUrl = imageUrl ? await compressBase64Image(imageUrl) : null
 
@@ -187,7 +213,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       await supabase
         .from("receipt_items")
         .delete()
-        .eq("receiptId", targetReceiptId)
+        .eq("receiptId", editReceiptId)
 
       // Update parent receipt record (preserve exact paymentStatus passed in edit payload)
       const updateFields: any = {
@@ -210,14 +236,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const { error: editErr } = await supabase
         .from("receipts")
         .update(updateFields)
-        .eq("id", targetReceiptId)
+        .eq("id", editReceiptId)
 
       if (editErr) console.warn("Edit receipt execution notice:", editErr)
 
       // Re-create items
       if (items && Array.isArray(items) && items.length > 0) {
         const itemsToCreate = items.map((it: any) => ({
-          receiptId: targetReceiptId,
+          receiptId: editReceiptId,
           name: it.name || "Item",
           category: it.category || "Lain-lain",
           subCategory: it.subCategory || "Umum",
@@ -258,11 +284,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     invalidateNotificationsCache()
     invalidateReceiptsListCache()
 
-    // Insert notification to all admins & Send Web Push
+    // Insert notification & Send Web Push
     try {
       const notifTitle = actionType === "CREATE" ? "Nota Baru Disetujui & Diterbitkan" : "Permintaan Diverifikasi & Disetujui"
       const notifMsg = actionType === "CREATE"
-        ? `Admin ${approvingAdmin} telah menyetujui pembuatan nota baru dari ${pendingApproval.requestedBy}. Nota resmi diterbitkan.`
+        ? `Admin ${approvingAdmin} telah menyetujui nota baru dari "${payload.merchantName || 'Nota / Toko'}" sebesar Rp ${(Number(payload.totalAmount) || 0).toLocaleString("id-ID")}. Nota kini resmi tercatat di sistem.`
         : `Admin ${approvingAdmin} telah memverifikasi & menyetujui permintaan ${pendingApproval.actionType} Anda.`
 
       await supabase.from("notifications").insert({
@@ -280,7 +306,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         title: notifTitle,
         message: notifMsg,
         url: "/",
-        recipientRole: "ADMIN",
+        recipientRole: "ALL",
         excludeUsername: approvingAdmin,
       }).catch((pErr) => console.warn("[WebPush Error on Approval]:", pErr))
     } catch (nErr) {
@@ -290,7 +316,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({
       success: true,
       message: actionType === "CREATE"
-        ? `Nota baru berhasil disetujui dan resmi diterbitkan oleh Admin ${approvingAdmin}.`
+        ? `Nota baru "${payload.merchantName || 'Nota'}" berhasil disetujui & diterbitkan ke sistem oleh Admin ${approvingAdmin}.`
         : `Perubahan berhasil diverifikasi dan diterapkan oleh Admin ${approvingAdmin}.`,
       approval: updatedApproval || { id: cleanId, status: "APPROVED" },
       receiptId: createdReceiptId || pendingApproval.receiptId || null,
