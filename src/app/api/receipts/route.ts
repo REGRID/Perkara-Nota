@@ -239,137 +239,91 @@ export async function POST(req: NextRequest) {
     // 1. Compress Image before storing
     const compressedImageUrl = imageUrl ? await compressBase64Image(imageUrl) : null
 
-    // 2. Insert master receipt
-    const { data: newReceipt, error: receiptError } = await supabase
-      .from("receipts")
+    const payloadToSave = {
+      merchantName: merchantName || "Nota / Toko",
+      date: date || new Date().toISOString().split("T")[0],
+      imageUrl: compressedImageUrl,
+      subtotal: Number(subtotal) || 0,
+      discountAmount: Number(discountAmount) || 0,
+      taxAmount: Number(taxAmount) || 0,
+      totalAmount: Number(totalAmount) || 0,
+      paymentMethod: paymentMethod || "Cash",
+      paymentStatus: paymentStatus || "Lunas",
+      note: cleanedNote,
+      staffName: reqStaffName || null,
+      items: items.map((it: any) => ({
+        name: it.name || "Item",
+        category: it.category || "Lain-lain",
+        subCategory: it.subCategory || "Umum",
+        price: Number(it.price) || 0,
+        quantity: Number(it.quantity) || 1,
+      })),
+    }
+
+    const adminUser = getAdminUserFromRequest(req) || (userRole === "KARYAWAN" && reqStaffName ? reqStaffName : "admin")
+
+    // 2. Insert into pending_approvals for Dual-Admin Verification
+    const { data: approval, error: approvalError } = await supabase
+      .from("pending_approvals")
       .insert({
-        merchantName: merchantName || "Nota / Toko",
-        date: date || new Date().toISOString().split("T")[0],
-        imageUrl: compressedImageUrl,
-        subtotal: Number(subtotal) || 0,
-        discountAmount: Number(discountAmount) || 0,
-        taxAmount: Number(taxAmount) || 0,
-        totalAmount: Number(totalAmount) || 0,
-        paymentMethod: paymentMethod || "Cash",
-        paymentStatus: paymentStatus || "Lunas",
-        note: cleanedNote,
-        staffName: reqStaffName || null,
-        updatedAt: new Date().toISOString(),
+        actionType: "CREATE",
+        requestedBy: adminUser,
+        status: "PENDING",
+        payload: JSON.stringify(payloadToSave),
       })
-      .select()
+      .select("id, receiptId, actionType, requestedBy, status, createdAt")
       .single()
 
-    if (receiptError) {
-      console.error("Insert Receipt Error:", receiptError)
-      throw new Error(receiptError.message)
+    if (approvalError) {
+      console.error("Insert Pending Approval Error:", approvalError)
+      throw new Error(approvalError.message)
     }
 
-    // 3. Insert items if any
-    let insertedItems: any[] = []
-    if (items && Array.isArray(items) && items.length > 0) {
-      const itemsToInsert = items.map((item: any) => ({
-        receiptId: newReceipt.id,
-        name: item.name || "Item",
-        category: item.category || "Lain-lain",
-        subCategory: item.subCategory || "Umum",
-        price: Number(item.price) || 0,
-        quantity: Number(item.quantity) || 1,
-      }))
+    invalidateApprovalsCache()
+    invalidateNotificationsCache()
 
-      const { data: itemsData, error: itemsError } = await supabase
-        .from("receipt_items")
-        .insert(itemsToInsert)
-        .select()
-
-      if (itemsError) {
-        console.error("Insert Items Error:", itemsError)
-      } else {
-        insertedItems = itemsData || []
-      }
-    }
-
-    const fullReceipt = {
-      ...newReceipt,
-      items: insertedItems,
-    }
-
-    // 4. Background auto-learning into dictionaries
+    // 3. Insert Notification & Send Real Web Push to Other Admins
     try {
-      if (merchantName) {
-        await supabase
-          .from("merchant_dictionaries")
-          .upsert(
-            {
-              rawPattern: merchantName.toLowerCase().trim(),
-              cleanName: merchantName.trim(),
-              updatedAt: new Date().toISOString(),
-            },
-            { onConflict: "rawPattern" }
-          )
-      }
-
-      if (insertedItems.length > 0) {
-        for (const itm of insertedItems) {
-          if (itm.name) {
-            await supabase
-              .from("product_dictionaries")
-              .upsert(
-                {
-                  rawName: itm.name.toLowerCase().trim(),
-                  verifiedName: itm.name.trim(),
-                  category: itm.category || "Lain-lain",
-                  subCategory: itm.subCategory || "Umum",
-                  lastKnownPrice: Number(itm.price) || 0,
-                  updatedAt: new Date().toISOString(),
-                },
-                { onConflict: "rawName" }
-              )
-          }
-        }
-      }
-    } catch (dictErr) {
-      console.warn("Background auto-learning notice:", dictErr)
-    }
-
-    // 5. Insert Notification & Send Real Web Push to Mobile Phones
-    try {
-      const isKaryawanUpload = Boolean(staffName) || getAdminRoleFromRequest(req) === "KARYAWAN"
+      const isKaryawanUpload = Boolean(staffName) || userRole === "KARYAWAN"
       const uploaderName = staffName
         ? `${staffName} (Karyawan)`
         : isKaryawanUpload
         ? "Karyawan"
-        : getAdminUserFromRequest(req) || "Admin"
+        : adminUser
 
-      const notifTitle = "Nota Baru Masuk"
-      const notifMessage = `${uploaderName} telah menyimpan nota baru dari "${merchantName || 'Nota / Toko'}" sebesar Rp ${(Number(totalAmount) || 0).toLocaleString("id-ID")}.`
+      const notifTitle = "Pengajuan Nota Baru Menunggu Approval"
+      const notifMessage = `${uploaderName} telah mengajukan nota baru dari "${merchantName || 'Nota / Toko'}" sebesar Rp ${(Number(totalAmount) || 0).toLocaleString("id-ID")}. Menunggu persetujuan Admin lain.`
 
       await supabase.from("notifications").insert({
         recipient: "all",
         sender: uploaderName,
-        type: "NEW_RECEIPT",
+        type: "REQUEST",
         title: notifTitle,
         message: notifMessage,
-        receiptId: newReceipt.id,
+        approvalId: approval.id,
         isRead: false,
       })
 
-      // Trigger Web Push so locked/closed phones receive the notification
+      // Trigger Web Push to other admin
       sendWebPushNotification({
         title: notifTitle,
         message: notifMessage,
         url: "/",
-        recipientRole: "ALL",
-        excludeUsername: uploaderName,
-      }).catch((pErr: any) => console.warn("[WebPush Error on New Receipt]:", pErr))
-      invalidateNotificationsCache()
+        recipientRole: "ADMIN",
+        excludeUsername: adminUser,
+      }).catch((pErr: any) => console.warn("[WebPush Error on New Receipt Request]:", pErr))
     } catch (nErr) {
-      console.warn("New receipt notification insert notice:", nErr)
+      console.warn("New receipt request notification notice:", nErr)
     }
 
-    return NextResponse.json(fullReceipt, { status: 201 })
+    return NextResponse.json({
+      pendingApproval: true,
+      message: `Nota baru dari "${merchantName || 'Nota / Toko'}" berhasil diajukan oleh ${adminUser}. Menunggu persetujuan (approval) dari admin lain.`,
+      approval,
+    }, { status: 201 })
   } catch (error: any) {
     console.error("POST Receipt Error:", error)
-    return NextResponse.json({ error: error.message || "Gagal menyimpan nota ke database" }, { status: 500 })
+    return NextResponse.json({ error: error.message || "Gagal mengajukan nota ke database" }, { status: 500 })
   }
 }
 

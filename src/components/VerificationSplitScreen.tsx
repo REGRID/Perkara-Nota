@@ -492,7 +492,7 @@ export function VerificationSplitScreen({
       }
 
       if (data.pendingApproval) {
-        alert(data.message || "Permintaan edit nota berhasil diajukan! Menunggu verifikasi dari admin lain.")
+        alert(data.message || "Permintaan berhasil diajukan! Menunggu persetujuan (approval) dari admin lain.")
       }
 
       onSaveSuccess()

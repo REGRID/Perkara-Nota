@@ -64,8 +64,85 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Invalidate list cache so fresh updated data is returned immediately
     invalidateReceiptsListCache()
 
+    let createdReceiptId: string | null = null
+
     // Execute requested changes in database
-    if (actionType === "DELETE" && (pendingApproval.receiptId || payload.id)) {
+    if (actionType === "CREATE") {
+      const { merchantName, date, imageUrl, subtotal, discountAmount, taxAmount, totalAmount, paymentMethod, paymentStatus, note, staffName, items } = payload
+      const compressedImageUrl = imageUrl ? await compressBase64Image(imageUrl) : null
+
+      const { data: newReceipt, error: receiptError } = await supabase
+        .from("receipts")
+        .insert({
+          merchantName: merchantName || "Nota / Toko",
+          date: date || new Date().toISOString().split("T")[0],
+          imageUrl: compressedImageUrl,
+          subtotal: Number(subtotal) || 0,
+          discountAmount: Number(discountAmount) || 0,
+          taxAmount: Number(taxAmount) || 0,
+          totalAmount: Number(totalAmount) || 0,
+          paymentMethod: paymentMethod || "Cash",
+          paymentStatus: paymentStatus || "Lunas",
+          note: note || null,
+          staffName: staffName || null,
+          updatedAt: new Date().toISOString(),
+        })
+        .select()
+        .single()
+
+      if (receiptError) {
+        console.error("Insert Receipt on Approval Error:", receiptError)
+        throw new Error(receiptError.message)
+      }
+
+      createdReceiptId = newReceipt.id
+
+      if (items && Array.isArray(items) && items.length > 0) {
+        const itemsToCreate = items.map((it: any) => ({
+          receiptId: createdReceiptId,
+          name: it.name || "Item",
+          category: it.category || "Lain-lain",
+          subCategory: it.subCategory || "Umum",
+          price: Number(it.price) || 0,
+          quantity: Number(it.quantity) || 1,
+        }))
+
+        await supabase.from("receipt_items").insert(itemsToCreate)
+      }
+
+      // Background auto-learning dictionaries
+      try {
+        if (merchantName) {
+          await supabase.from("merchant_dictionaries").upsert(
+            {
+              rawPattern: merchantName.toLowerCase().trim(),
+              cleanName: merchantName.trim(),
+              updatedAt: new Date().toISOString(),
+            },
+            { onConflict: "rawPattern" }
+          )
+        }
+        if (items && Array.isArray(items)) {
+          for (const itm of items) {
+            if (itm.name) {
+              await supabase.from("product_dictionaries").upsert(
+                {
+                  rawName: itm.name.toLowerCase().trim(),
+                  verifiedName: itm.name.trim(),
+                  category: itm.category || "Lain-lain",
+                  subCategory: itm.subCategory || "Umum",
+                  lastKnownPrice: Number(itm.price) || 0,
+                  updatedAt: new Date().toISOString(),
+                },
+                { onConflict: "rawName" }
+              )
+            }
+          }
+        }
+      } catch (dictErr) {
+        console.warn("Auto-learning dictionary notice:", dictErr)
+      }
+    } else if (actionType === "DELETE" && (pendingApproval.receiptId || payload.id)) {
       const targetId = pendingApproval.receiptId || payload.id
       const { error: delErr } = await supabase
         .from("receipts")
@@ -155,13 +232,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     // Mark approval request as APPROVED in Supabase
+    const updateApprovalData: any = {
+      status: "APPROVED",
+      approvedBy: approvingAdmin,
+      updatedAt: new Date().toISOString(),
+    }
+    if (createdReceiptId) {
+      updateApprovalData.receiptId = createdReceiptId
+    }
+
     const { data: updatedApproval, error: updateErr } = await supabase
       .from("pending_approvals")
-      .update({
-        status: "APPROVED",
-        approvedBy: approvingAdmin,
-        updatedAt: new Date().toISOString(),
-      })
+      .update(updateApprovalData)
       .eq("id", cleanId)
       .select("*")
       .maybeSingle()
@@ -178,8 +260,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     // Insert notification to all admins & Send Web Push
     try {
-      const notifTitle = "Permintaan Diverifikasi & Disetujui"
-      const notifMsg = `Admin ${approvingAdmin} telah memverifikasi & menyetujui permintaan ${pendingApproval.actionType} Anda.`
+      const notifTitle = actionType === "CREATE" ? "Nota Baru Disetujui & Diterbitkan" : "Permintaan Diverifikasi & Disetujui"
+      const notifMsg = actionType === "CREATE"
+        ? `Admin ${approvingAdmin} telah menyetujui pembuatan nota baru dari ${pendingApproval.requestedBy}. Nota resmi diterbitkan.`
+        : `Admin ${approvingAdmin} telah memverifikasi & menyetujui permintaan ${pendingApproval.actionType} Anda.`
 
       await supabase.from("notifications").insert({
         recipient: "all",
@@ -188,6 +272,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         title: notifTitle,
         message: notifMsg,
         approvalId: cleanId,
+        receiptId: createdReceiptId || pendingApproval.receiptId || null,
         isRead: false,
       })
 
@@ -204,8 +289,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     return NextResponse.json({
       success: true,
-      message: `Perubahan berhasil diverifikasi dan diterapkan oleh Admin ${approvingAdmin}.`,
+      message: actionType === "CREATE"
+        ? `Nota baru berhasil disetujui dan resmi diterbitkan oleh Admin ${approvingAdmin}.`
+        : `Perubahan berhasil diverifikasi dan diterapkan oleh Admin ${approvingAdmin}.`,
       approval: updatedApproval || { id: cleanId, status: "APPROVED" },
+      receiptId: createdReceiptId || pendingApproval.receiptId || null,
     })
   } catch (error: any) {
     console.error("Approve Request Error:", error)
