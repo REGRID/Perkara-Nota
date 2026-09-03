@@ -17,6 +17,10 @@ export async function GET(req: NextRequest) {
     const endDate = searchParams.get("endDate") || ""
     const format = searchParams.get("format") || "xlsx"
     const order = searchParams.get("order") || "asc"
+    const paymentMethodsParam = searchParams.get("paymentMethods") || ""
+    const selectedPaymentMethods = paymentMethodsParam
+      ? paymentMethodsParam.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+      : []
 
     const sortDirection = order === "desc" ? "desc" : "asc"
     const rootKeyword = category ? category.split("/")[0].trim() : ""
@@ -87,6 +91,24 @@ export async function GET(req: NextRequest) {
         const match = noteText.match(/\[Dibayar oleh: ([^\]]+)\]/)
         const paidBy = match ? match[1].trim() : ""
         if (paidBy.toLowerCase() !== person.toLowerCase()) return false
+      }
+
+      // 6. Payment Method Filter (Multi-Select OR condition)
+      if (selectedPaymentMethods.length > 0) {
+        const rMethod = (r.paymentMethod || "Cash").toLowerCase().trim()
+        const matchesAnyMethod = selectedPaymentMethods.some((sMethod: string) => {
+          if (rMethod === sMethod) return true
+          if (rMethod.includes(sMethod) || sMethod.includes(rMethod)) return true
+          if (sMethod === "cash" && (rMethod === "cash" || rMethod === "tunai")) return true
+          if (sMethod.includes("transfer") && rMethod.includes("transfer")) return true
+          if (sMethod.includes("qris") && rMethod.includes("qris")) return true
+          if (sMethod.includes("debit") && (rMethod.includes("debit") || rMethod.includes("kredit") || rMethod.includes("kartu") || rMethod.includes("edc"))) return true
+          if (sMethod.includes("pribadi") && (rMethod.includes("pribadi") || rMethod.includes("owner"))) return true
+          if (sMethod.includes("talangan") && rMethod.includes("talangan")) return true
+          if (sMethod.includes("hutang") && (rMethod.includes("hutang") || rMethod.includes("supplier") || rMethod.includes("tempo"))) return true
+          return false
+        })
+        if (!matchesAnyMethod) return false
       }
 
       return true

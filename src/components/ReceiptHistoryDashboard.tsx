@@ -331,6 +331,45 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
   // Sub-Status / Penanggung Jawab Filter State
   const [selectedPersonFilter, setSelectedPersonFilter] = useState<string>("Semua Penanggung Jawab")
 
+  // Payment Method Multi-Select Filter State
+  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<string[]>([])
+
+  // Dynamically extract all available payment methods (preserving standard order + extra)
+  const availablePaymentMethods = useMemo(() => {
+    const defaultList = [
+      "Cash",
+      "Transfer Bank",
+      "QRIS",
+      "Kredit / Debit",
+      "Dana Pribadi Owner",
+      "Talangan Karyawan",
+      "Hutang Supplier",
+    ]
+    const methodSet = new Set<string>(defaultList)
+    allReceipts.forEach((r) => {
+      if (r.paymentMethod && r.paymentMethod.trim()) {
+        methodSet.add(r.paymentMethod.trim())
+      }
+    })
+    return Array.from(methodSet)
+  }, [allReceipts])
+
+  const handleTogglePaymentMethod = (method: string) => {
+    setSelectedPaymentMethods((prev) => {
+      if (prev.includes(method)) {
+        return prev.filter((m) => m !== method)
+      } else {
+        return [...prev, method]
+      }
+    })
+    setCurrentPage(1)
+  }
+
+  const handleClearPaymentMethods = () => {
+    setSelectedPaymentMethods([])
+    setCurrentPage(1)
+  }
+
   // Dynamically extract all unique person names from [Dibayar oleh: ...] tags in receipts
   const availablePersonNames = useMemo(() => {
     const personSet = new Set<string>()
@@ -857,10 +896,29 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
         if (paidBy.toLowerCase() !== selectedPersonFilter.toLowerCase()) return false
       }
 
+      // 7. Payment Method Multi-Select Filter (OR condition across selected methods)
+      if (selectedPaymentMethods.length > 0) {
+        const rMethod = (r.paymentMethod || "Cash").toLowerCase().trim()
+        const matchesAnyMethod = selectedPaymentMethods.some((selected) => {
+          const sMethod = selected.toLowerCase().trim()
+          if (rMethod === sMethod) return true
+          if (rMethod.includes(sMethod) || sMethod.includes(rMethod)) return true
+          if (sMethod === "cash" && (rMethod === "cash" || rMethod === "tunai")) return true
+          if (sMethod.includes("transfer") && rMethod.includes("transfer")) return true
+          if (sMethod.includes("qris") && rMethod.includes("qris")) return true
+          if (sMethod.includes("debit") && (rMethod.includes("debit") || rMethod.includes("kredit") || rMethod.includes("kartu") || rMethod.includes("edc"))) return true
+          if (sMethod.includes("pribadi") && (rMethod.includes("pribadi") || rMethod.includes("owner"))) return true
+          if (sMethod.includes("talangan") && rMethod.includes("talangan")) return true
+          if (sMethod.includes("hutang") && (rMethod.includes("hutang") || rMethod.includes("supplier") || rMethod.includes("tempo"))) return true
+          return false
+        })
+        if (!matchesAnyMethod) return false
+      }
+
       return true
     })
 
-    // 7. Sort Filtered Receipts
+    // 8. Sort Filtered Receipts
     return filtered.sort((a, b) => {
       if (sortBy === "date-desc") {
         const dateComp = (b.date || "").localeCompare(a.date || "")
@@ -898,13 +956,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
     subQ,
     selectedStatusFilter,
     selectedPersonFilter,
+    selectedPaymentMethods,
     sortBy,
   ])
 
   // Reset to Page 1 when filters or sort change
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, dateRangeFilter, startDate, endDate, selectedCategory, selectedSubCategory, selectedStatusFilter, selectedPersonFilter, sortBy])
+  }, [searchQuery, dateRangeFilter, startDate, endDate, selectedCategory, selectedSubCategory, selectedStatusFilter, selectedPersonFilter, selectedPaymentMethods, sortBy])
 
   // Build lookup map for receipts that have pending approval requests
   const pendingApprovalMap = useMemo(() => {
@@ -1365,6 +1424,9 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       }
       if (selectedPersonFilter && selectedPersonFilter !== "Semua Penanggung Jawab") {
         url.searchParams.set("person", selectedPersonFilter)
+      }
+      if (selectedPaymentMethods.length > 0) {
+        url.searchParams.set("paymentMethods", selectedPaymentMethods.join(","))
       }
       if (dateRangeFilter === "custom") {
         if (startDate) url.searchParams.set("startDate", startDate)
@@ -2310,14 +2372,14 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
               type="button"
               onClick={() => setShowStatusFilterPanel((prev) => !prev)}
               className={`relative p-2 rounded-xl transition-all border shadow-2xs active:scale-95 flex items-center justify-center shrink-0 ${
-                showStatusFilterPanel || selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab"
+                showStatusFilterPanel || selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab" || selectedPaymentMethods.length > 0
                   ? "bg-slate-900 text-emerald-400 border-slate-800"
                   : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
               }`}
-              title="Filter Status Pembayaran & Talangan"
+              title="Filter Status & Metode Pembayaran"
             >
               <Filter className="w-4 h-4" />
-              {(selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab") && (
+              {(selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab" || selectedPaymentMethods.length > 0) && (
                 <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-white animate-pulse" />
               )}
             </button>
@@ -2332,6 +2394,61 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
               <Settings className="w-4 h-4 text-slate-700" />
             </button>
           </div>
+        </div>
+
+        {/* Multi-Select Payment Methods Filter Bar (Bisa Gabung > 1 Metode) */}
+        <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider mr-1 shrink-0 flex items-center gap-1">
+              <CreditCard className="w-3.5 h-3.5 text-emerald-600" /> Metode Bayar:
+            </span>
+            <button
+              type="button"
+              onClick={handleClearPaymentMethods}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold transition-all duration-150 whitespace-nowrap active:scale-95 ${
+                selectedPaymentMethods.length === 0
+                  ? "bg-slate-900 text-white shadow-xs"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Semua
+            </button>
+            {availablePaymentMethods.map((method) => {
+              const isSelected = selectedPaymentMethods.includes(method)
+              return (
+                <button
+                  key={method}
+                  type="button"
+                  onClick={() => handleTogglePaymentMethod(method)}
+                  className={`inline-flex items-center gap-1 px-3.5 py-1.5 rounded-full text-xs font-extrabold transition-all duration-150 whitespace-nowrap active:scale-95 ${
+                    isSelected
+                      ? "bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-500/40"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900 border border-slate-200"
+                  }`}
+                  title={isSelected ? `Hapus filter ${method}` : `Tambahkan filter ${method} (bisa digabung)`}
+                >
+                  {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                  {method}
+                </button>
+              )
+            })}
+          </div>
+
+          {selectedPaymentMethods.length > 0 && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[11px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                {selectedPaymentMethods.length} Terpilih
+              </span>
+              <button
+                type="button"
+                onClick={handleClearPaymentMethods}
+                className="text-[11px] font-bold text-red-600 hover:text-red-700 underline px-1"
+                title="Reset pilihan metode pembayaran"
+              >
+                Reset
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Dynamic Sub-Category Filter Pills */}
@@ -2358,46 +2475,100 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
           </div>
         )}
 
-        {/* Dedicated Payment Status & Sub-Status Filter Panel (Appears when Filter Status button is clicked or filter active) */}
-        {(showStatusFilterPanel || selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab") && (
-          <div className="space-y-2.5 pt-3 border-t border-slate-200/70 animate-in fade-in duration-200">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1">
-                <CheckSquare className="w-3.5 h-3.5 text-emerald-600" /> STATUS PEMBAYARAN:
-              </span>
+        {/* Dedicated Payment Status, Metode Pembayaran & Sub-Status Filter Panel */}
+        {(showStatusFilterPanel || selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab" || selectedPaymentMethods.length > 0) && (
+          <div className="space-y-3 pt-3 border-t border-slate-200/70 animate-in fade-in duration-200">
+            {/* Status Pembayaran Row */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1">
+                  <CheckSquare className="w-3.5 h-3.5 text-emerald-600" /> STATUS PEMBAYARAN:
+                </span>
 
-              {(selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab") && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedStatusFilter("Semua Status")
-                    setSelectedPersonFilter("Semua Penanggung Jawab")
-                  }}
-                  className="text-[11px] font-bold text-red-600 hover:text-red-700 underline"
-                >
-                  Reset Filter Status
-                </button>
-              )}
-            </div>            <div className="flex items-center gap-1.5 overflow-x-auto">
-              {["Semua Status", "Lunas", "Sudah Dilunasi", "Belum Direimburse / Tempo"].map((statusOpt) => (
-                <button
-                  key={statusOpt}
-                  type="button"
-                  onClick={() => {
-                    setSelectedStatusFilter(statusOpt)
-                    if (statusOpt === "Sudah Dilunasi" || statusOpt === "Lunas") {
+                {(selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab" || selectedPaymentMethods.length > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedStatusFilter("Semua Status")
                       setSelectedPersonFilter("Semua Penanggung Jawab")
-                    }
-                  }}
-                  className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all duration-150 whitespace-nowrap active:scale-95 ${
-                    selectedStatusFilter === statusOpt
+                      setSelectedPaymentMethods([])
+                    }}
+                    className="text-[11px] font-bold text-red-600 hover:text-red-700 underline"
+                  >
+                    Reset Semua Filter Status & Metode
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                {["Semua Status", "Lunas", "Sudah Dilunasi", "Belum Direimburse / Tempo"].map((statusOpt) => (
+                  <button
+                    key={statusOpt}
+                    type="button"
+                    onClick={() => {
+                      setSelectedStatusFilter(statusOpt)
+                      if (statusOpt === "Sudah Dilunasi" || statusOpt === "Lunas") {
+                        setSelectedPersonFilter("Semua Penanggung Jawab")
+                      }
+                    }}
+                    className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all duration-150 whitespace-nowrap active:scale-95 ${
+                      selectedStatusFilter === statusOpt
+                        ? "bg-slate-900 text-white shadow-xs"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200"
+                    }`}
+                  >
+                    {statusOpt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Metode Pembayaran Multi-Select Inside Panel */}
+            <div className="space-y-1.5 pt-2 border-t border-slate-200/50">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1">
+                  <CreditCard className="w-3.5 h-3.5 text-emerald-600" /> METODE PEMBAYARAN (BISA GABUNG &gt; 1):
+                </span>
+                {selectedPaymentMethods.length > 0 && (
+                  <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                    {selectedPaymentMethods.length} Metode Aktif
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-500 font-medium">
+                Klik beberapa tombol di bawah untuk menggabungkan (contoh: <strong>QRIS</strong> + <strong>Transfer Bank</strong>, atau hanya <strong>Cash</strong>):
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <button
+                  type="button"
+                  onClick={handleClearPaymentMethods}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all duration-150 whitespace-nowrap active:scale-95 ${
+                    selectedPaymentMethods.length === 0
                       ? "bg-slate-900 text-white shadow-xs"
                       : "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200"
                   }`}
                 >
-                  {statusOpt}
+                  Semua Metode
                 </button>
-              ))}
+                {availablePaymentMethods.map((method) => {
+                  const isSelected = selectedPaymentMethods.includes(method)
+                  return (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => handleTogglePaymentMethod(method)}
+                      className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all duration-150 whitespace-nowrap active:scale-95 ${
+                        isSelected
+                          ? "bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-500/40"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200"
+                      }`}
+                    >
+                      {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                      {method}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             {/* Sub-Status: Penanggung Jawab / Talangan (Only shown if NOT filtered by Lunas/Sudah Dilunasi) */}
@@ -2574,16 +2745,35 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
             <div className="space-y-1">
               <h4 className="font-extrabold text-slate-900 text-base">Belum Ada Nota Di Kriteria Ini</h4>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Coba sesuaikan filter kategori, kata kunci pencarian, atau periode waktu Anda.
+                Coba sesuaikan filter kategori, metode pembayaran, kata kunci pencarian, atau periode waktu Anda.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={onScanNewReceipt}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/20"
-            >
-              <Sparkles className="w-4 h-4" /> Scan Struk Baru Sekarang
-            </button>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              {(searchQuery || selectedCategory !== "Semua" || selectedStatusFilter !== "Semua Status" || selectedPersonFilter !== "Semua Penanggung Jawab" || selectedPaymentMethods.length > 0 || dateRangeFilter !== "all") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("")
+                    setSelectedCategory("Semua")
+                    setSelectedSubCategory("Semua Sub-Kategori")
+                    setSelectedStatusFilter("Semua Status")
+                    setSelectedPersonFilter("Semua Penanggung Jawab")
+                    setSelectedPaymentMethods([])
+                    setDateRangeFilter("all")
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all border border-slate-300 active:scale-95"
+                >
+                  Reset Semua Filter
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onScanNewReceipt}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/20 active:scale-95"
+              >
+                <Sparkles className="w-4 h-4" /> Scan Struk Baru
+              </button>
+            </div>
           </div>
         ) : (
           /* HORIZONTAL ROW-BASED CARDS CONTAINER */
@@ -2978,6 +3168,16 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
                         <span className="w-28 text-slate-500 font-normal">Filter Status</span>
                         <span>:</span>
                         <span className="font-bold text-blue-800">{selectedStatusFilter}</span>
+                      </div>
+                    )}
+
+                    {selectedPaymentMethods.length > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-28 text-slate-500 font-normal">Metode Bayar</span>
+                        <span>:</span>
+                        <span className="font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                          {selectedPaymentMethods.join(" + ")}
+                        </span>
                       </div>
                     )}
 
