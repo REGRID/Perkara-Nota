@@ -1264,21 +1264,67 @@ export function ReceiptHistoryDashboard({ onScanNewReceipt, onEditReceipt, curre
       doc.setTextColor(16, 185, 129)
       doc.text("PERKARA KOPI — OFFICIAL STATEMENT", pageWidth - 14, 19, { align: "right" })
 
-      // Metadata Section
-      let currentY = 29
+      // Metadata Header Section
+      let currentY = 28
       doc.setFont("helvetica", "bold")
-      doc.setFontSize(8.5)
+      doc.setFontSize(9.5)
       doc.setTextColor(15, 23, 42)
-      doc.text(`Periode Data: ${statementDateRange.from} s/d ${statementDateRange.to}`, 10, currentY)
-      doc.text(`Total Ringkasan: ${statementTableRows.length} Struk — Rp ${Math.round(totalSpend).toLocaleString("id-ID")}`, pageWidth - 10, currentY, { align: "right" })
+      doc.text("Laporan Rekapitulasi Pembukuan Nota", 10, currentY)
 
-      currentY += 5
-      doc.setFont("helvetica", "normal")
-      doc.setFontSize(8)
+      doc.setFont("helvetica", "italic")
+      doc.setFontSize(7.5)
       doc.setTextColor(100, 116, 139)
-      doc.text(`No. Registrasi: 140008801996 | Kategori: ${selectedCategory}${isSubCategoryActive ? ` (${selectedSubCategory})` : ""}`, 10, currentY)
+      doc.text("(Receipt Accounting Summary Report)", 10, currentY + 3.8)
 
-      currentY += 6
+      currentY += 8.5
+
+      // Metadata Info Rows
+      const metadataRows: { label: string; value: string; isHighlight?: boolean }[] = [
+        { label: "Periode Data", value: `${statementDateRange.from} s/d ${statementDateRange.to}` },
+        { label: "No. Registrasi", value: "140008801996 - NOTA PHOTO PEMBUKUAN" },
+        { label: "Kategori Utama", value: `${selectedCategory}${isSubCategoryActive ? ` (${selectedSubCategory})` : ""}` },
+        {
+          label: "Metode Bayar",
+          value: selectedPaymentMethods.length > 0 ? selectedPaymentMethods.join(" + ") : "Semua Metode Bayar",
+          isHighlight: selectedPaymentMethods.length > 0,
+        },
+      ]
+
+      if (selectedStatusFilter !== "Semua Status") {
+        metadataRows.push({ label: "Filter Status", value: selectedStatusFilter })
+      }
+      if (selectedPersonFilter !== "Semua Penanggung Jawab") {
+        metadataRows.push({ label: "Penanggung Jawab", value: selectedPersonFilter })
+      }
+      if (searchQuery.trim()) {
+        metadataRows.push({ label: "Kata Kunci Cari", value: `"${searchQuery.trim()}"` })
+      }
+      metadataRows.push({
+        label: "Total Ringkasan",
+        value: `${statementTableRows.length} Struk — Rp ${Math.round(totalSpend).toLocaleString("id-ID")}`,
+        isHighlight: true,
+      })
+
+      metadataRows.forEach((item) => {
+        doc.setFont("helvetica", "normal")
+        doc.setFontSize(7.5)
+        doc.setTextColor(100, 116, 139)
+        doc.text(`${item.label}`, 10, currentY)
+        doc.text(":", 36, currentY)
+
+        doc.setFont("helvetica", "bold")
+        if (item.label === "Total Ringkasan") {
+          doc.setTextColor(5, 150, 105)
+        } else if (item.label === "Metode Bayar" && item.isHighlight) {
+          doc.setTextColor(4, 120, 87)
+        } else {
+          doc.setTextColor(15, 23, 42)
+        }
+        doc.text(item.value, 38, currentY)
+        currentY += 4
+      })
+
+      currentY += 2
 
       // Prepare Table Rows
       const head = [["Tanggal", "No. Ref", "Toko", "Rincian Barang & Kategori", "Pengeluaran", "Total"]]
